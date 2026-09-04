@@ -144,8 +144,8 @@ export default function SignUpPage() {
     });
   };
 
-  const snippet = `<!-- Paste into your website. Replace the action URL with your endpoint. -->
-<form method="POST" action="https://YOUR-ENDPOINT/api/intake">
+  const snippet = `<!-- Paste into your website. Swap YOUR-DOMAIN for wherever this app is hosted. -->
+<form method="POST" action="https://YOUR-DOMAIN/api/intake">
   <input name="firstName"   placeholder="First name" required />
   <input name="lastName"    placeholder="Last name" />
   <input name="email"       type="email" placeholder="Email" required />
@@ -155,8 +155,14 @@ export default function SignUpPage() {
   <input name="partySize"   type="number" min="1" value="1" />
   <textarea name="notes"    placeholder="Tell me about your day"></textarea>
 
-  <label><input type="checkbox" name="emailConsent" value="true" /> Email me about my booking and offers</label>
+  <label><input type="checkbox" name="emailConsent" value="true" /> Email me about my booking</label>
   <label><input type="checkbox" name="smsConsent"   value="true" /> Text me reminders before the day</label>
+
+  <!-- Spam trap. Bots fill this in; leave it hidden and empty. -->
+  <input name="website" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" />
+
+  <!-- Where to send the visitor afterwards. Omit for a JSON response instead. -->
+  <input type="hidden" name="redirectTo" value="https://YOUR-SITE/thank-you" />
 
   <button type="submit">Send enquiry</button>
 </form>`;
@@ -314,18 +320,22 @@ export default function SignUpPage() {
             </CardHeader>
             <CardContent className="space-y-2.5 pt-0 text-[12.5px] leading-relaxed text-muted-foreground">
               <p>
-                This app stores everything in <Mono className="text-[11px]">localStorage</Mono> in
-                one browser. A form on a real website cannot reach it — there is no server to post
-                to, and no shared database.
+                The endpoint is built and working:{" "}
+                <Mono className="text-[11px]">POST /api/intake</Mono> validates the submission,
+                matches an existing client by email so nobody is duplicated, records their consent
+                exactly as ticked, and emits{" "}
+                <Mono className="text-[11px]">enquiry.submitted</Mono>.
               </p>
               <p>
-                To connect the real form you need a hosted API endpoint writing to a real database,
-                which is the same change that lets the countdown triggers run on a schedule instead
-                of being clicked by hand.
+                The one thing missing is a <strong>public URL</strong>. The app runs on this
+                machine only, so the form above has nowhere to reach. Hosting it is what closes
+                that gap — and the same deployment gives the countdown triggers somewhere to run
+                on a schedule.
               </p>
               <p>
-                Until then this page is a genuine way to build up a client list and design the
-                journeys around it — the data is real and persists, it just lives on this machine.
+                Once hosted, set{" "}
+                <Mono className="text-[11px]">INTAKE_ALLOWED_ORIGINS</Mono> to her website&apos;s
+                domain so only her site can post to it.
               </p>
               <Button variant="secondary" size="sm" asChild className="mt-1 w-full">
                 <Link href="/triggers">Set up the countdown triggers</Link>

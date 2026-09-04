@@ -19,15 +19,17 @@ Client + Wedding date → Scheduled trigger → Event → Journey → Decisions 
 
 - Adding clients through the sign-up page. They are written to a **SQLite database on disk**,
   so they survive a refresh, a browser change, clearing site data and restarting the server.
+- **The website enquiry endpoint** (`POST /api/intake`) — validated, spam-trapped, rate
+  limited, and de-duplicating by email so nobody is entered twice.
 - Countdown triggers evaluating every client and emitting events when a milestone arrives.
 - Designing and simulating every journey, and seeing exactly what each client would receive.
 - Consent captured per channel and enforced on every send.
 
 **Does not work yet — and needs a backend, not more UI**
 
-- **A form on her website cannot reach this app yet.** The data now lives in a real database
-  with an HTTP API, but the app only runs on this machine — there is no public URL for the
-  embed snippet to post to. That is a hosting step, not a code one.
+- **No public URL.** The intake endpoint is built and tested, but the app only runs on this
+  machine, so a form on her website has nowhere to post to. Hosting is the only thing left
+  for this one.
 - **Nothing fires on a schedule.** "Run due triggers" is a button someone presses. A real
   deployment needs a cron job calling the same evaluation every few minutes.
 - **No email or SMS is sent.** Sends are simulated and recorded.
@@ -40,13 +42,54 @@ tab is closed.
 
 | Gap | What it needs |
 | --- | --- |
-| Website form → client list | ~~A database~~ (done) — now just a public URL to host it at |
+| Website form → client list | ~~A database~~ ~~an endpoint~~ (both done) — just hosting now |
 | Countdown fires by itself | A scheduled job calling the same `runDueTriggers` evaluation |
 | Messages actually send | An email provider (domain verification required) and an SMS provider |
 | Unsubscribe links | A hosted preference page — legally required for marketing sends |
 
-Persistence is done. The remaining blocker for both the form and the scheduler is the same
-thing: somewhere public to run.
+Persistence and intake are done. The remaining blocker for both the form and the scheduler is
+the same thing: somewhere public to run.
+
+---
+
+## The website enquiry endpoint
+
+`POST /api/intake` accepts both shapes a real form takes: a plain HTML `<form action>` post,
+which arrives URL-encoded and redirects the visitor back to the site, and a `fetch()` post,
+which arrives as JSON and gets JSON back. Supporting only the second would force her site to
+run JavaScript for something that works fine without it.
+
+The embeddable snippet is on the **Add client** page, ready to copy.
+
+**What it does with an untrusted submission**
+
+- **Validates and length-caps everything.** A wedding date more than five years out or two
+  years past is rejected — almost always a typo or a bot, and letting one through would put
+  a client on a countdown that fires wrongly or never.
+- **De-duplicates by email.** A bride who enquires twice does not become two clients, which
+  would otherwise put her on the countdown twice and send every reminder in duplicate.
+- **Fails closed on consent.** A checkbox only appears in a form body when ticked; anything
+  else is treated as *not* consented. A repeat submission overwrites consent with whatever
+  was ticked that time, including withdrawing it — the form is the client's current stated
+  preference, and quietly keeping an older, more permissive answer is what gets a business
+  in trouble.
+- **Never promotes an enquiry to a confirmed booking.** That happens when a deposit is taken,
+  which this endpoint cannot know about — so website enquiries correctly stay out of the
+  wedding countdown until the booking is confirmed in the app.
+- **Never clears global suppression.** That is a decision made in the app, and a public
+  endpoint must not be able to undo it.
+- **Silently drops bots.** A hidden honeypot field that humans leave empty. A filled one gets
+  a success response and is not stored — telling a bot it was rejected just teaches whoever
+  wrote it which field to leave alone.
+- **Rate limits** to five submissions per minute per IP.
+
+**Before going live**, set `INTAKE_ALLOWED_ORIGINS` to her site's domains, comma-separated.
+Unset means any origin may post, which is right for local development and wrong in
+production.
+
+The rate limiter is in-memory: it resets on restart and does not span instances. It exists to
+stop a public form being trivially flooded, not to withstand a determined attacker — that
+needs a shared store or a WAF in front.
 
 ---
 
