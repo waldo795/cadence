@@ -1,26 +1,263 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "@xyflow/react/dist/base.css";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+  Palette is intentionally restrained: a single neutral ramp plus one accent.
+  Node-kind accents live in `node-*` tokens so canvas colours stay coherent
+  with the rest of the product instead of drifting into decorative territory.
+*/
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: oklch(0.995 0 0);
+  --surface: oklch(1 0 0);
+  --surface-muted: oklch(0.975 0.002 260);
+  --foreground: oklch(0.21 0.01 260);
+  --muted-foreground: oklch(0.52 0.012 260);
+  --subtle-foreground: oklch(0.63 0.01 260);
+  --border: oklch(0.915 0.004 260);
+  --border-strong: oklch(0.86 0.006 260);
+  --accent: oklch(0.53 0.19 273);
+  --accent-foreground: oklch(0.99 0 0);
+  --accent-soft: oklch(0.955 0.02 273);
+  --ring: oklch(0.53 0.19 273);
+
+  --success: oklch(0.58 0.14 155);
+  --success-soft: oklch(0.955 0.03 155);
+  --warning: oklch(0.68 0.14 70);
+  --warning-soft: oklch(0.965 0.04 80);
+  --danger: oklch(0.58 0.2 25);
+  --danger-soft: oklch(0.96 0.03 25);
+
+  --node-entry: oklch(0.55 0.16 245);
+  --node-logic: oklch(0.58 0.15 300);
+  --node-action: oklch(0.55 0.16 190);
+  --node-control: oklch(0.6 0.12 60);
+
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: oklch(0.165 0.006 265);
+  --surface: oklch(0.203 0.007 265);
+  --surface-muted: oklch(0.238 0.008 265);
+  --foreground: oklch(0.96 0.003 260);
+  --muted-foreground: oklch(0.71 0.012 265);
+  --subtle-foreground: oklch(0.6 0.012 265);
+  --border: oklch(0.29 0.009 265);
+  --border-strong: oklch(0.36 0.011 265);
+  --accent: oklch(0.66 0.17 275);
+  --accent-foreground: oklch(0.16 0.01 265);
+  --accent-soft: oklch(0.29 0.05 275);
+  --ring: oklch(0.66 0.17 275);
+
+  --success: oklch(0.72 0.15 158);
+  --success-soft: oklch(0.29 0.05 158);
+  --warning: oklch(0.79 0.14 78);
+  --warning-soft: oklch(0.3 0.05 78);
+  --danger: oklch(0.68 0.18 22);
+  --danger-soft: oklch(0.3 0.06 22);
+
+  --node-entry: oklch(0.7 0.14 245);
+  --node-logic: oklch(0.72 0.13 300);
+  --node-action: oklch(0.72 0.12 190);
+  --node-control: oklch(0.76 0.12 70);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-ring: var(--ring);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --color-node-entry: var(--node-entry);
+  --color-node-logic: var(--node-logic);
+  --color-node-action: var(--node-action);
+  --color-node-control: var(--node-control);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: var(--accent-soft);
+  }
+
+  /* Tabular numerals keep dashboard metrics from jittering. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
   }
 }
 
-body {
-  background: var(--background);
+@layer components {
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  .scroll-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-slim::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+    border-radius: 999px;
+  }
+  .scroll-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* React Flow surface overrides — keep the canvas visually part of the product. */
+.react-flow {
+  background-color: var(--surface-muted);
+}
+
+.react-flow__handle {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background-color: var(--surface);
+  border: 1.5px solid var(--border-strong);
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.react-flow__handle:hover {
+  border-color: var(--accent);
+  background-color: var(--accent);
+}
+
+.react-flow__handle-top {
+  top: -5px;
+}
+
+.react-flow__handle-bottom {
+  bottom: -5px;
+}
+
+.react-flow__edge-path {
+  stroke: var(--border-strong);
+  stroke-width: 1.75;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-width: 2.25;
+}
+
+.react-flow__edge-text {
+  font-size: 10px;
+  font-weight: 600;
+  fill: var(--muted-foreground);
+}
+
+.react-flow__edge-textbg {
+  fill: var(--surface-muted);
+}
+
+.react-flow__connection-path {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.react-flow__controls-button {
+  background-color: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  width: 28px;
+  height: 28px;
+}
+
+.react-flow__controls-button:hover {
+  background-color: var(--surface-muted);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor;
+  max-width: 12px;
+  max-height: 12px;
+}
+
+.react-flow__minimap {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.react-flow__attribution {
+  background: transparent;
+  font-size: 9px;
+  opacity: 0.35;
+}
+
+.react-flow__node {
+  cursor: grab;
+}
+
+.react-flow__node:active {
+  cursor: grabbing;
+}
+
+/* Simulation edge animation — a slow dash, not a distracting marquee. */
+@keyframes edge-flow {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+.react-flow__edge.edge-traversed .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-dasharray: 6 4;
+  animation: edge-flow 900ms linear infinite;
+}
+
+.react-flow__edge.edge-skipped .react-flow__edge-path {
+  stroke: var(--border);
+  stroke-width: 1.25;
+  stroke-dasharray: 3 5;
+  opacity: 0.55;
 }
