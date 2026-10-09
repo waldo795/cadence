@@ -6,6 +6,7 @@ import {
   type SendingControls,
   type TestRecipient,
 } from "@/domain/sending";
+import { themeOrDefault, type EmailTheme } from "@/domain/email-theme";
 import { DOCUMENT_KEYS, readDoc, writeDoc } from "./storage";
 
 /**
@@ -88,4 +89,16 @@ export function removeTestRecipient(id: string): TestRecipient[] {
   }
 
   return next;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Email theme                                                                */
+/* -------------------------------------------------------------------------- */
+
+export function getEmailTheme(): EmailTheme {
+  return themeOrDefault(readDoc<Partial<EmailTheme>>(DOCUMENT_KEYS.emailTheme));
+}
+
+export function saveEmailTheme(theme: EmailTheme): void {
+  writeDoc(DOCUMENT_KEYS.emailTheme, theme);
 }

@@ -72,7 +72,7 @@ export function createResendTransport(options: ResendOptions): EmailTransport {
             to: [request.to],
             subject: request.subject,
             text: request.text,
-            html: toHtml(request.text),
+            html: request.html ?? toHtml(request.text),
             ...(replyTo ? { reply_to: replyTo } : {}),
           }),
         });

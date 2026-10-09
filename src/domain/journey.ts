@@ -132,7 +132,21 @@ export interface SendEmailConfig {
   template: string;
   senderName: string;
   subject: string;
+  /**
+   * The plain-text body.
+   *
+   * Still the source of truth for a node that has never been opened in the
+   * block editor, and still what the plain-text part is built from. Read it
+   * through `blocksFor()` rather than directly.
+   */
   body: string;
+  /**
+   * The designed body. Absent on nodes authored before the editor existed,
+   * which is why `blocksFor()` derives blocks from `body` when it is missing.
+   */
+  blocks?: import("./email-content").EmailBlock[];
+  /** The inbox preview line. Falls back to the first paragraph. */
+  preheader?: string;
   /**
    * Stable identifier other journeys exclude against. Kept separate from
    * `template` so copy can be renamed without breaking every reference to it.

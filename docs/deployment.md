@@ -118,15 +118,15 @@ without changing the password.
 Hosting makes the app reachable. It does not make it lawful to start messaging people.
 
 - [ ] **A privacy notice on the enquiry form** — what is collected, why, how long it is kept
-- [ ] **An unsubscribe link in every marketing message** — required under PECR, and not built
-      yet
+- [x] **An unsubscribe link in every marketing message** — required under PECR. Added to
+      every email footer automatically; needs `APP_URL` set or the link is omitted
 - [ ] **A backup** — Supabase free has none
 - [ ] **Check consent wording** on the form matches what you actually intend to send
 - [x] **A way to service access and erasure requests** — see [Privacy requests](privacy-requests.md)
 
 Transactional messages (a booking confirmation someone asked for) rest on a different footing
-to marketing ones (an upsell). The product already separates consent per channel; the
-unsubscribe route is the missing piece.
+to marketing ones (an upsell). The product separates consent per channel, and unsubscribing
+sets email consent to `unsubscribed`, which the policy evaluator honours everywhere.
 
 ## What still will not work once deployed
 

@@ -12,6 +12,12 @@ import {
   type CapEvaluation,
 } from "@/domain/governance";
 import type { MessageRecord } from "@/domain/message";
+import {
+  blockTemplateStrings,
+  blocksFor,
+  blocksToText,
+  mapBlockText,
+} from "@/domain/email-content";
 import { frequencyGovernor } from "@/services/governance";
 import {
   describeCondition,
@@ -682,7 +688,17 @@ export class SimulationEngine implements JourneyExecutor {
             node.kind === "send_email"
               ? node.config.subject
               : node.config.title;
-          const bodyTemplate = node.config.body;
+          /*
+           * Email bodies are blocks; push bodies are still a string. Going
+           * through `blocksFor` means a send node authored before the editor
+           * existed renders exactly as it always did, with its paragraphs
+           * recovered from the blank lines they were already written with.
+           */
+          const emailBlocks =
+            node.kind === "send_email" ? blocksFor(node.config) : null;
+          const bodyTemplate = emailBlocks
+            ? blocksToText(emailBlocks)
+            : node.config.body;
 
           const cap = governor.resolveCap(profile, channel);
           const decision = policyEvaluator.evaluate({
@@ -704,9 +720,25 @@ export class SimulationEngine implements JourneyExecutor {
             unresolved: [
               ...new Set([
                 ...unresolvedPlaceholders(subjectTemplate, context),
-                ...unresolvedPlaceholders(bodyTemplate, context),
+                // Every authored string, not just the body text: a merge
+                // field in a button's link fails just as loudly.
+                ...(emailBlocks
+                  ? blockTemplateStrings(emailBlocks).flatMap((value) =>
+                      unresolvedPlaceholders(value, context),
+                    )
+                  : unresolvedPlaceholders(bodyTemplate, context)),
               ]),
             ],
+            ...(emailBlocks
+              ? {
+                  blocks: mapBlockText(emailBlocks, (value) =>
+                    interpolate(value, context),
+                  ),
+                  preheader: node.kind === "send_email" && node.config.preheader
+                    ? interpolate(node.config.preheader, context)
+                    : undefined,
+                }
+              : {}),
           };
 
           if (!decision.allowed) {

@@ -1,3 +1,6 @@
+import { renderEmailHtml } from "@/domain/email-render";
+import { themeOrDefault, type EmailTheme } from "@/domain/email-theme";
+import { unsubscribeUrl } from "@/lib/unsubscribe";
 import {
   DEFAULT_CONTROLS,
   resolveSendTarget,
@@ -31,16 +34,18 @@ export interface SendingContext {
   controls: SendingControls;
   settings: JourneySendSetting[];
   testRecipients: TestRecipient[];
+  theme: EmailTheme;
   transport: EmailTransport;
   /** Why sending is unavailable, when it is. */
   transportProblem?: string;
 }
 
 export async function loadSendingContext(): Promise<SendingContext> {
-  const [controls, settings, testRecipients] = await Promise.all([
+  const [controls, settings, testRecipients, theme] = await Promise.all([
     readDocument<SendingControls>(DOCUMENT_KEYS.sendingControls),
     readDocument<JourneySendSetting[]>(DOCUMENT_KEYS.sendSettings),
     readDocument<TestRecipient[]>(DOCUMENT_KEYS.testRecipients),
+    readDocument<Partial<EmailTheme>>(DOCUMENT_KEYS.emailTheme),
   ]);
 
   const configured = transportFromEnv();
@@ -49,6 +54,7 @@ export async function loadSendingContext(): Promise<SendingContext> {
     controls: controls ?? DEFAULT_CONTROLS,
     settings: settings ?? [],
     testRecipients: testRecipients ?? [],
+    theme: themeOrDefault(theme),
     transport: configured.ok ? configured.transport : nullTransport,
     transportProblem: configured.ok ? undefined : configured.reason,
   };
@@ -112,6 +118,27 @@ export async function dispatch(
       testRecipient,
     });
 
+    /*
+     * A live send with an unresolved merge field is stopped.
+     *
+     * `interpolate` deliberately leaves an unknown placeholder visible rather
+     * than blanking it, which is right for a preview and unacceptable in a
+     * bride's inbox — "Hi {{profile.firstName}}" a week before her wedding is
+     * not a message worth getting out on time. Test mode is let through on
+     * purpose: seeing the broken field is the entire point of a test send.
+     */
+    if (target.outcome === "deliver" && message.unresolved.length > 0) {
+      records.push(
+        base(id, message, instance, now, {
+          status: "blocked",
+          sendDetail: `Not sent: ${message.unresolved
+            .map((field) => `{{${field}}}`)
+            .join(", ")} could not be filled in for this client, and would have appeared in the email as written.`,
+        }),
+      );
+      continue;
+    }
+
     if (target.outcome === "suppress") {
       records.push(
         base(id, message, instance, now, { status: "blocked", sendDetail: target.reason }),
@@ -146,10 +173,32 @@ export async function dispatch(
         ? testSubjectPrefix(target.intendedFor) + message.subjectRendered
         : message.subjectRendered;
 
+    /*
+     * The unsubscribe link is per client and per message, and it points at
+     * the real recipient even in test mode — clicking it in a redirected
+     * test should opt out the person the message was for, which is the only
+     * way to test that the link works at all.
+     */
+    const unsubscribe = await unsubscribeUrl(instance.profileId);
+
+    const html = message.blocks
+      ? renderEmailHtml({
+          blocks: message.blocks,
+          theme: context.theme,
+          preheader: message.preheader,
+          unsubscribeUrl: unsubscribe,
+          testBanner:
+            target.outcome === "redirect"
+              ? `Test send. This would have gone to ${target.intendedFor}.`
+              : undefined,
+        })
+      : undefined;
+
     const result = await context.transport.send({
       to: target.to,
       subject,
       text: message.bodyRendered,
+      html,
       /*
        * Derived from the instance and step, so the same slice retried after a
        * crash is collapsed by the provider instead of arriving twice.

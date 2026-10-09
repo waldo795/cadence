@@ -17,7 +17,7 @@ import { Sidebar } from "./sidebar";
  * to hydrate, is refused because nobody is signed in yet, and shows the error
  * screen *instead of the login form* — leaving no way to sign in at all.
  */
-const UNAUTHENTICATED_ROUTES = ["/login"];
+const UNAUTHENTICATED_ROUTES = ["/login", "/unsubscribe"];
 
 /**
  * Blocks rendering until the dataset has loaded.

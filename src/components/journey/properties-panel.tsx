@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/select";
 import { Field, Mono, Separator } from "@/components/ui/misc";
 import { Tooltip } from "@/components/ui/tooltip";
+import { blocksToText } from "@/domain/email-content";
+import { BlockEditor } from "./block-editor";
 import { NodeIcon } from "./node-icon";
 
 interface PropertiesPanelProps {
@@ -490,11 +492,22 @@ function NodeConfigFields({
             value={node.config.subject}
             onChange={(subject) => patch("send_email", { subject })}
           />
-          <TextAreaField
-            label="Body preview"
-            value={node.config.body}
-            rows={4}
-            onChange={(body) => patch("send_email", { body })}
+          <TextField
+            label="Inbox preview line"
+            value={node.config.preheader ?? ""}
+            onChange={(preheader) => patch("send_email", { preheader })}
+          />
+          <BlockEditor
+            config={node.config}
+            onChange={(blocks) =>
+              /*
+               * `body` is written alongside the blocks, not left behind.
+               * It is the plain-text part of every send and what an older
+               * reader of this node still expects, so letting it drift from
+               * the blocks would mean two versions of the same email.
+               */
+              patch("send_email", { blocks, body: blocksToText(blocks) })
+            }
           />
           <PersonalisationHint />
         </div>

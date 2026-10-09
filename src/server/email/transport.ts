@@ -10,8 +10,10 @@
 export interface EmailSendRequest {
   to: string;
   subject: string;
-  /** Plain text. The templates are plain text today; HTML is derived. */
+  /** The plain-text alternative part. Always sent alongside the HTML. */
   text: string;
+  /** The designed body. Derived from the text when absent. */
+  html?: string;
   /** Overrides the configured sender. Rarely needed. */
   from?: string;
   replyTo?: string;

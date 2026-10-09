@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { blocksToText, type EmailBlock } from "@/domain/email-content";
+import { renderEmailHtml } from "@/domain/email-render";
+import { themeOrDefault, type EmailTheme } from "@/domain/email-theme";
 import { DEFAULT_CONTROLS, type SendingControls, type TestRecipient } from "@/domain/sending";
 import { transportFromEnv } from "@/server/email/resend";
 import { readDocument } from "@/server/store";
@@ -60,15 +63,43 @@ export async function POST(request: Request) {
   }
 
   const now = new Date();
+  const theme = themeOrDefault(
+    await readDocument<Partial<EmailTheme>>(DOCUMENT_KEYS.emailTheme),
+  );
+
+  /*
+   * Rendered through the real theme and renderer, not as a plain note. A
+   * diagnostic that does not look like the actual email only proves the key
+   * works — this also shows the branding, the footer and the spacing you
+   * will be shipping.
+   */
+  const blocks: EmailBlock[] = [
+    { id: "b1", kind: "heading", level: 1, text: "Your emails are working" },
+    {
+      id: "b2",
+      kind: "text",
+      text: `Hello ${recipient.name},\n\nThis is a test from Cadence. It arrived, so the email provider is configured correctly and any journey set to test mode will reach this address.`,
+    },
+    { id: "b3", kind: "divider" },
+    {
+      id: "b4",
+      kind: "text",
+      text: `Sent from ${configured.from} at ${now.toLocaleString("en-GB")}.\n\nThis is how your branding and footer will look. Adjust them in Settings.`,
+    },
+  ];
+
   const result = await configured.transport.send({
     to: recipient.email,
     subject: "Cadence — test email",
-    text: [
-      `Hello ${recipient.name},`,
-      "This is a test email from Cadence. If it arrived, the email provider is configured correctly and journeys set to test mode will reach this address.",
-      `Sent from: ${configured.from}`,
-      `Sent at: ${now.toLocaleString("en-GB")}`,
-    ].join("\n\n"),
+    text: blocksToText(blocks),
+    html: renderEmailHtml({
+      blocks,
+      theme,
+      preheader: "A test from Cadence to confirm your email provider is set up.",
+      // No unsubscribe link: this is a diagnostic to a test profile, not
+      // marketing to a client, and the footer would be inviting the operator
+      // to opt themselves out of their own test sends.
+    }),
     // Deliberately unique: a diagnostic you cannot repeat is not a diagnostic.
     idempotencyKey: `test_${recipient.id}_${now.getTime()}`,
   });

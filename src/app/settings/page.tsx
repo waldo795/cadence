@@ -8,6 +8,7 @@ import { describeCap } from "@/domain/governance";
 import { getContactPolicy } from "@/services/governance";
 import { resetDemoData } from "@/services/local-store";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
+import { EmailThemeCard } from "@/components/shell/email-theme-card";
 import { KillSwitchCard, TestRecipientsCard } from "@/components/shell/sending-controls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ export default function SettingsPage() {
       <PageBody className="grid max-w-3xl gap-5">
         {/* First, because it is what you come here in a hurry to find. */}
         <KillSwitchCard />
+        <EmailThemeCard />
         <TestRecipientsCard />
 
         <Card>

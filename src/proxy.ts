@@ -19,7 +19,20 @@ import { authConfigured, SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
  * Everything else, including `/api/snapshot` and `/api/mutate`, is closed.
  * Those read and destroy real client data, and were open until now.
  */
-const PUBLIC_PATHS = ["/api/intake", "/api/cron", "/api/health", "/login", "/api/auth"];
+const PUBLIC_PATHS = [
+  "/api/intake",
+  "/api/cron",
+  "/api/health",
+  "/login",
+  "/api/auth",
+  /*
+   * Unsubscribe has to be reachable by the client who received the email,
+   * who has no account. The link carries an HMAC of the profile id, so it
+   * authorises exactly one person's opt-out and nothing else.
+   */
+  "/unsubscribe",
+  "/api/unsubscribe",
+];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));

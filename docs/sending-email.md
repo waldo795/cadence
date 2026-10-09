@@ -140,7 +140,8 @@ the repository.
 | --- | --- |
 | `RESEND_API_KEY` | Create at resend.com/api-keys with **sending access only**. Cadence never manages domains, keys or contacts. |
 | `EMAIL_FROM` | Must be on a domain verified in Resend. |
-| `EMAIL_REPLY_TO` | Optional. |
+| `EMAIL_REPLY_TO` | Optional. Set it if replies should reach a different inbox from the sending address — they usually should. |
+| `APP_URL` | Where unsubscribe links point. Detected from Railway's own domain; set it explicitly behind a custom domain. **Without it, emails go out with no unsubscribe link**, which is unlawful for marketing. |
 
 With no key set, nothing can be sent: journeys still decide and record, and
 every message is marked `failed` with the reason.
@@ -178,7 +179,6 @@ cannot usefully be sent late.
   retried. Needed before real clients depend on this.
 - **SMS.** The seeded "SMS" messages are email nodes labelled as SMS. There is
   no `send_sms` node kind and no SMS provider, so those are recorded, not sent.
-- **Unsubscribe.** Legally required before any marketing send.
 - **Delivery and open tracking.** Resend reports these by webhook; nothing
   consumes it yet, so `sent` means "accepted by the provider", not "arrived".
 

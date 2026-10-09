@@ -49,6 +49,16 @@ export interface RenderedMessage {
   bodyTemplate: string;
   bodyRendered: string;
   unresolved: string[];
+  /**
+   * The designed body with merge fields already resolved, for email.
+   *
+   * Carried on the message rather than re-derived later so that the preview
+   * and the live send render the identical structure — the theme is applied
+   * downstream, but the content is decided once, here.
+   */
+  blocks?: import("@/domain/email-content").EmailBlock[];
+  /** The inbox preview line, resolved. */
+  preheader?: string;
 }
 
 export interface PolicyTrace {
