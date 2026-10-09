@@ -65,8 +65,22 @@ export async function verifySessionToken(token: string | undefined): Promise<boo
 export async function passwordMatches(candidate: string): Promise<boolean> {
   const expected = process.env.APP_PASSWORD?.trim();
   if (!expected) return false;
-  // Hash both sides first so the comparison length is fixed regardless of input.
-  const [a, b] = await Promise.all([sign(`pw:${candidate}`), sign(`pw:${expected}`)]);
+
+  /*
+   * Both sides are trimmed, and surrounding quotes are stripped from the
+   * stored value.
+   *
+   * Browsers and password managers readily append a space on autofill, and a
+   * value pasted into a host's raw variable editor as APP_PASSWORD="secret"
+   * is commonly stored with the quotes intact. Either produces a login that
+   * fails with no way to tell why, which is worse than the vanishingly rare
+   * case of a password that genuinely begins or ends with a quote.
+   */
+  const unquoted = expected.replace(/^(['"])([\s\S]*)\1$/, "$2");
+  const [a, b] = await Promise.all([
+    sign(`pw:${candidate.trim()}`),
+    sign(`pw:${unquoted}`),
+  ]);
   return timingSafeEqual(a, b);
 }
 
