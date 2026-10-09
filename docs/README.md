@@ -26,6 +26,12 @@ is built, what is not finished. This folder is about *using* it.
 | [Experiments](experiments.md) | Holdouts, variants and lift reporting. |
 | [Website enquiry form](website-form.md) | Capturing clients from a public website. |
 
+## Operating it
+
+| Guide | What it covers |
+| --- | --- |
+| [Deploying](deployment.md) | Hosting it for real: what to set, what fails loudly, what to do before real client data goes in. |
+
 ## Conventions in these guides
 
 - **Why it works this way** boxes explain decisions that look odd until you know the reason.

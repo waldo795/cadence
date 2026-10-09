@@ -10,6 +10,7 @@ import {
   UserPlus,
   GitBranch,
   LayoutDashboard,
+  LogOut,
   Plug,
   Settings,
   ShieldCheck,
@@ -87,18 +88,30 @@ export function Sidebar() {
 
       <div className="border-t border-border p-3">
         <div className="mb-2 rounded-lg bg-surface-muted px-3 py-2.5">
-          <p className="text-[11px] font-medium text-foreground">Local proof of concept</p>
+          <p className="text-[11px] font-medium text-foreground">Messages are not delivered</p>
           <p className="mt-0.5 text-[11px] leading-relaxed text-subtle-foreground">
-            All customers, events and messages are fictional. Nothing is sent.
+            Every send is recorded and simulated. No email or SMS provider is connected yet.
           </p>
         </div>
         <div className="flex items-center justify-between pl-1">
-          <div className="flex items-center gap-2">
-            <span className="flex size-6 items-center justify-center rounded-full bg-accent-soft text-[10px] font-semibold text-accent">
-              DM
-            </span>
-            <span className="text-[12px] text-muted-foreground">Demo workspace</span>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void fetch("/api/auth", { method: "DELETE" }).then(() => {
+                /*
+                 * A full reload, not router.push. The hydrated dataset lives in
+                 * module-level memory, and a client-side navigation would leave
+                 * it there for whoever signs in next.
+                 */
+                // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+                window.location.href = "/login";
+              });
+            }}
+            className="flex items-center gap-2 rounded-md px-1 py-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <LogOut className="size-3.5" />
+            Sign out
+          </button>
           <ThemeToggle />
         </div>
       </div>

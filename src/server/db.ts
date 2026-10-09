@@ -107,6 +107,19 @@ async function createPgDb(connectionString: string): Promise<Db> {
 }
 
 async function createPgliteDb(): Promise<Db> {
+  /*
+   * PGlite writes to the local filesystem, which on most hosts is wiped on
+   * every deploy and often between requests. Falling back to it in production
+   * because DATABASE_URL was forgotten would appear to work and then quietly
+   * lose every client, so refuse instead.
+   */
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "DATABASE_URL is not set. Refusing to start with a local database in production — " +
+        "data would be lost on the next deploy. Point DATABASE_URL at a Postgres server.",
+    );
+  }
+
   const { PGlite } = await import("@electric-sql/pglite");
   const dir = resolve(process.cwd(), "data", "pg");
   mkdirSync(dir, { recursive: true });
