@@ -1,10 +1,22 @@
 "use client";
 
 import * as React from "react";
+import { usePathname } from "next/navigation";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { hydrate, isHydrated, setWriteErrorHandler } from "@/services/storage";
 import { Button } from "@/components/ui/button";
+import { Sidebar } from "./sidebar";
+
+/**
+ * Routes that must render without any data.
+ *
+ * Signing in is the obvious one, and getting this wrong deadlocks the whole
+ * app: the provider wraps every page, so without the exception `/login` tries
+ * to hydrate, is refused because nobody is signed in yet, and shows the error
+ * screen *instead of the login form* — leaving no way to sign in at all.
+ */
+const UNAUTHENTICATED_ROUTES = ["/login"];
 
 /**
  * Blocks rendering until the dataset has loaded.
@@ -15,6 +27,9 @@ import { Button } from "@/components/ui/button";
  * than a loading nicety — rendering early would throw.
  */
 export function DataProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const needsData = !UNAUTHENTICATED_ROUTES.includes(pathname);
+
   const [state, setState] = React.useState<"loading" | "ready" | "error">(() =>
     isHydrated() ? "ready" : "loading",
   );
@@ -24,6 +39,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     hydrate()
       .then(() => setState("ready"))
       .catch((error: unknown) => {
+        // An expired or missing session is not an error worth a screen — it
+        // just means signing in again.
+        if (error instanceof Error && error.name === "Unauthorized") {
+          /*
+           * A full load, not router.push. The module-level cache has to be
+           * discarded on the way out, and the proxy needs to see the request
+           * so it can set up the redirect back afterwards.
+           */
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+          window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+          return;
+        }
         setMessage(error instanceof Error ? error.message : "Could not reach the server.");
         setState("error");
       });
@@ -40,13 +67,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Kicked off once. `load` only sets state from the promise callbacks, never
   // synchronously, so this does not cascade renders.
   React.useEffect(() => {
-    if (!isHydrated()) load();
-  }, [load]);
+    if (needsData && !isHydrated()) load();
+  }, [load, needsData]);
 
   const retry = () => {
     setState("loading");
     load();
   };
+
+  if (!needsData) return <>{children}</>;
 
   if (state === "error") {
     return (
@@ -76,5 +105,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return <>{children}</>;
+  /*
+   * The navigation lives here rather than in the layout, so it only appears
+   * once there is a session and data behind it. Rendering it around the login
+   * page would show a signed-out visitor the whole menu, every item of which
+   * bounces straight back to signing in.
+   */
+  return (
+    <div className="flex h-screen overflow-hidden">
+      <Sidebar />
+      <main className="scroll-slim flex-1 overflow-y-auto">{children}</main>
+    </div>
+  );
 }

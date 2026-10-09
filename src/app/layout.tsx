@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { DataProvider } from "@/components/shell/data-provider";
-import { Sidebar } from "@/components/shell/sidebar";
 import { themeScript } from "@/components/shell/theme-toggle";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
@@ -24,12 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <TooltipProvider delayDuration={300}>
-          <DataProvider>
-            <div className="flex h-screen overflow-hidden">
-              <Sidebar />
-              <main className="scroll-slim flex-1 overflow-y-auto">{children}</main>
-            </div>
-          </DataProvider>
+          <DataProvider>{children}</DataProvider>
           <Toaster
             position="bottom-right"
             toastOptions={{

@@ -40,7 +40,14 @@ export function isHydrated(): boolean {
 export async function hydrate(): Promise<void> {
   const response = await fetch("/api/snapshot", { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`Could not load data (${response.status}).`);
+    const error = new Error(`Could not load data (${response.status}).`);
+    /*
+     * Named so the shell can send the user to sign in rather than showing a
+     * dead end. A 401 here means the session has expired or was never
+     * established — not that anything is broken.
+     */
+    if (response.status === 401) error.name = "Unauthorized";
+    throw error;
   }
   const snapshot = (await response.json()) as Snapshot;
   cache = {
