@@ -33,10 +33,13 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 USER nextjs
 EXPOSE 3000
 
-# The host checks this to decide whether the container is healthy. It verifies
-# the database too, so a container that cannot reach Postgres is not sent
-# traffic.
+# Verifies the database too, so a container that is up but cannot reach
+# Postgres is not sent traffic.
+#
+# Reads $PORT rather than hardcoding 3000: hosts inject their own port, and a
+# healthcheck probing the wrong one fails every deploy while the app is in fact
+# running perfectly.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "const p=process.env.PORT||3000;fetch('http://127.0.0.1:'+p+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "server.js"]
