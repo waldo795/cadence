@@ -138,13 +138,15 @@ async function createPgliteDb(): Promise<Db> {
       await queryable.exec(sql);
     },
     async transaction<T>(run: (tx: Db) => Promise<T>): Promise<T> {
-      // PGlite drives its own transaction; `exec` is unavailable on the handle,
-      // so statements inside one go through `query`.
       return client.transaction(async (tx) =>
         run(
           wrap({
             query: (sql, params) => tx.query(sql, params),
-            exec: (sql) => tx.query(sql),
+            // The transaction handle has its own `exec`, which accepts
+            // multi-statement SQL. Routing it through `query` instead would
+            // reject the migration DDL, since a prepared statement may only
+            // carry one command.
+            exec: (sql) => tx.exec(sql),
           }),
         ),
       ) as Promise<T>;
@@ -299,21 +301,42 @@ async function migrate(handle: Db): Promise<void> {
     );
   `);
 
-  const applied = new Set(
-    (await handle.query<{ name: string }>("SELECT name FROM migrations")).map(
-      (row) => row.name,
-    ),
-  );
+  /*
+   * Everything below runs inside one transaction holding an advisory lock.
+   *
+   * Hosts overlap containers during a zero-downtime deploy, so two processes
+   * can reach this at the same moment. Without the lock they would both read
+   * the same empty `applied` set, both run the DDL, and the second would die
+   * on the migrations primary key — turning a routine deploy into a failed
+   * one for no reason.
+   *
+   * `pg_advisory_xact_lock` is transaction-scoped, so it releases on commit or
+   * rollback and cannot be stranded by a crash mid-migration. It has to be
+   * taken on the same connection as the work, which is why this goes through
+   * `transaction()` rather than the pool.
+   */
+  await handle.transaction(async (tx) => {
+    await tx.query("SELECT pg_advisory_xact_lock($1)", [MIGRATION_LOCK_KEY]);
 
-  for (const migration of MIGRATIONS) {
-    if (applied.has(migration.name)) continue;
-    await handle.exec(migration.sql);
-    await handle.query("INSERT INTO migrations (name, applied_at) VALUES ($1, $2)", [
-      migration.name,
-      new Date().toISOString(),
-    ]);
-  }
+    const applied = new Set(
+      (await tx.query<{ name: string }>("SELECT name FROM migrations")).map(
+        (row) => row.name,
+      ),
+    );
+
+    for (const migration of MIGRATIONS) {
+      if (applied.has(migration.name)) continue;
+      await tx.exec(migration.sql);
+      await tx.query(
+        "INSERT INTO migrations (name, applied_at) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING",
+        [migration.name, new Date().toISOString()],
+      );
+    }
+  });
 }
+
+/** Arbitrary but fixed. Any process migrating this database uses the same key. */
+const MIGRATION_LOCK_KEY = 4_827_193;
 
 /** True when this tenant has no data yet. */
 export async function isEmpty(): Promise<boolean> {
