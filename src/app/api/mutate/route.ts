@@ -42,32 +42,32 @@ export async function POST(request: Request) {
         if (!Array.isArray(mutation.profiles)) {
           return NextResponse.json({ error: "profiles must be an array." }, { status: 400 });
         }
-        upsertProfiles(mutation.profiles);
+        await upsertProfiles(mutation.profiles);
         break;
 
       case "appendEvents":
         if (!Array.isArray(mutation.events)) {
           return NextResponse.json({ error: "events must be an array." }, { status: 400 });
         }
-        insertEvents(mutation.events);
+        await insertEvents(mutation.events);
         break;
 
       case "appendMessages":
         if (!Array.isArray(mutation.messages)) {
           return NextResponse.json({ error: "messages must be an array." }, { status: 400 });
         }
-        insertMessages(mutation.messages);
+        await insertMessages(mutation.messages);
         break;
 
       case "writeDocument":
         if (typeof mutation.key !== "string" || mutation.key === "") {
           return NextResponse.json({ error: "key is required." }, { status: 400 });
         }
-        writeDocument(mutation.key, mutation.value);
+        await writeDocument(mutation.key, mutation.value);
         break;
 
       case "reset":
-        resetDatabase();
+        await resetDatabase();
         break;
 
       default:

@@ -151,7 +151,7 @@ export async function POST(request: Request) {
     );
   }
 
-  ensureSeeded();
+  await ensureSeeded();
 
   /*
    * A spam submission gets a success response but is never stored. Telling a
@@ -179,7 +179,7 @@ export async function POST(request: Request) {
 
   let result;
   try {
-    result = recordIntake(validation.clean);
+    result = await recordIntake(validation.clean);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not save the enquiry.";
     return NextResponse.json({ ok: false, errors: [message] }, { status: 500, headers: cors });

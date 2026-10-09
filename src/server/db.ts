@@ -1,59 +1,183 @@
-import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 
 /**
  * The database.
  *
- * SQLite via `node:sqlite`, which ships with Node 24 — no native compilation
- * and no dependency to install, which matters on Windows where `better-sqlite3`
- * drags in Visual Studio build tools.
+ * Postgres, reached two ways:
  *
- * Storage is deliberately split:
+ *  - **`DATABASE_URL` set** — a real server (Supabase, Neon, anything) via the
+ *    `pg` pool. This is production.
+ *  - **unset** — PGlite, which is Postgres itself compiled to WebAssembly,
+ *    running in-process against a local directory.
  *
- *  - **Rows** for profiles, events and messages. These grow without bound and,
- *    more importantly, are about to have *concurrent writers*: the website
- *    intake endpoint and the scheduled-trigger cron can both fire at once. A
- *    read-modify-write of a whole collection would silently drop one of them.
- *  - **Documents** for configuration — journeys, triggers, contact policy,
- *    experiments. Only the UI edits these, one at a time, and they are deeply
- *    nested structures that would need a large mapping layer to normalise for
- *    no practical gain at this size.
- *
- * The `doc` column holds the full domain object as JSON. The extracted columns
- * exist purely to be indexed and queried; `doc` remains the source of truth, so
- * adding a field to a domain type does not require a migration.
+ * PGlite is not an emulation or a shim: it is the actual Postgres engine, so
+ * the SQL, the types and the transaction semantics are the same ones that run
+ * in production. That is what makes it safe to develop and test against
+ * without anyone installing a database — and it keeps the tested surface equal
+ * to the shipped surface, because only the connection differs. Every statement
+ * below this adapter is written once and runs on both.
  */
 
-let database: DatabaseSync | null = null;
-
-function databasePath(): string {
-  // Overridable so tests and future deployments can point elsewhere.
-  const configured = process.env.CADENCE_DB_PATH;
-  return configured ? resolve(configured) : resolve(process.cwd(), "data", "cadence.db");
+export interface QueryResult {
+  rows: Record<string, unknown>[];
 }
 
-export function db(): DatabaseSync {
-  if (database) return database;
-
-  const path = databasePath();
-  mkdirSync(dirname(path), { recursive: true });
-
-  database = new DatabaseSync(path);
-  // WAL lets a reader run while a writer is committing — relevant the moment
-  // the cron and the intake endpoint overlap.
-  database.exec("PRAGMA journal_mode = WAL");
-  database.exec("PRAGMA foreign_keys = ON");
-  migrate(database);
-  return database;
+/** The narrow surface everything else uses. */
+export interface Db {
+  query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
+  exec(sql: string): Promise<void>;
+  transaction<T>(run: (tx: Db) => Promise<T>): Promise<T>;
 }
 
 /**
- * Schema migrations, applied in order and recorded so they run once.
+ * Every table is scoped by tenant from day one.
  *
- * Deliberately plain SQL rather than a migration library: there is one
- * developer, the schema is small, and an extra dependency here would buy
- * nothing.
+ * There is only one tenant today. Adding the column later would mean a
+ * migration across every table plus every query, so it costs nothing now and a
+ * great deal later.
+ */
+export const DEFAULT_TENANT = process.env.CADENCE_TENANT_ID ?? "default";
+
+/* -------------------------------------------------------------------------- */
+/* Adapters                                                                   */
+/* -------------------------------------------------------------------------- */
+
+type PgPool = {
+  query: (sql: string, params?: unknown[]) => Promise<QueryResult>;
+  connect: () => Promise<PgClient>;
+};
+type PgClient = {
+  query: (sql: string, params?: unknown[]) => Promise<QueryResult>;
+  release: () => void;
+};
+
+function wrapPgQueryable(queryable: {
+  query: (sql: string, params?: unknown[]) => Promise<QueryResult>;
+}): Omit<Db, "transaction"> {
+  return {
+    async query<T>(sql: string, params: unknown[] = []) {
+      const result = await queryable.query(sql, params);
+      return result.rows as T[];
+    },
+    async exec(sql: string) {
+      await queryable.query(sql);
+    },
+  };
+}
+
+async function createPgDb(connectionString: string): Promise<Db> {
+  const { Pool } = await import("pg");
+
+  // Hosted Postgres almost always requires TLS, and managed providers commonly
+  // present a certificate the default chain will not verify. Opt out only when
+  // the URL does not already say what it wants.
+  const needsSsl = !/sslmode=/.test(connectionString);
+
+  const pool = new Pool({
+    connectionString,
+    ...(needsSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+    max: 10,
+  }) as unknown as PgPool;
+
+  const base = wrapPgQueryable(pool);
+
+  return {
+    ...base,
+    async transaction<T>(run: (tx: Db) => Promise<T>): Promise<T> {
+      const client = await pool.connect();
+      const tx: Db = {
+        ...wrapPgQueryable(client),
+        // Nested transactions are not used; reuse the same client.
+        transaction: async (inner) => inner(tx),
+      };
+      try {
+        await client.query("BEGIN");
+        const result = await run(tx);
+        await client.query("COMMIT");
+        return result;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+  };
+}
+
+async function createPgliteDb(): Promise<Db> {
+  const { PGlite } = await import("@electric-sql/pglite");
+  const dir = resolve(process.cwd(), "data", "pg");
+  mkdirSync(dir, { recursive: true });
+
+  const client = await PGlite.create(dir);
+
+  const wrap = (queryable: {
+    query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+    exec: (sql: string) => Promise<unknown>;
+  }): Db => ({
+    async query<T>(sql: string, params: unknown[] = []) {
+      const result = await queryable.query(sql, params);
+      return result.rows as T[];
+    },
+    async exec(sql: string) {
+      await queryable.exec(sql);
+    },
+    async transaction<T>(run: (tx: Db) => Promise<T>): Promise<T> {
+      // PGlite drives its own transaction; `exec` is unavailable on the handle,
+      // so statements inside one go through `query`.
+      return client.transaction(async (tx) =>
+        run(
+          wrap({
+            query: (sql, params) => tx.query(sql, params),
+            exec: (sql) => tx.query(sql),
+          }),
+        ),
+      ) as Promise<T>;
+    },
+  });
+
+  return wrap({
+    query: (sql, params) => client.query(sql, params),
+    exec: (sql) => client.exec(sql),
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Connection                                                                 */
+/* -------------------------------------------------------------------------- */
+
+let connection: Promise<Db> | null = null;
+
+export function db(): Promise<Db> {
+  if (connection) return connection;
+
+  const url = process.env.DATABASE_URL?.trim();
+  connection = (url ? createPgDb(url) : createPgliteDb()).then(async (handle) => {
+    await migrate(handle);
+    return handle;
+  });
+
+  return connection;
+}
+
+export function describeConnection(): string {
+  return process.env.DATABASE_URL?.trim()
+    ? "Postgres (DATABASE_URL)"
+    : "PGlite — local Postgres, data/pg";
+}
+
+/* -------------------------------------------------------------------------- */
+/* Migrations                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Plain SQL, applied in order and recorded so each runs once.
+ *
+ * `doc` columns are `jsonb` rather than text: the full domain object stays the
+ * source of truth, but it is queryable, so a future report does not need a new
+ * column for every question. The extracted columns exist purely to be indexed.
  */
 const MIGRATIONS: { name: string; sql: string }[] = [
   {
@@ -61,86 +185,97 @@ const MIGRATIONS: { name: string; sql: string }[] = [
     sql: `
       CREATE TABLE IF NOT EXISTS profiles (
         id             TEXT PRIMARY KEY,
+        tenant_id      TEXT NOT NULL,
         customer_id    TEXT NOT NULL,
         email          TEXT,
         first_name     TEXT,
         last_name      TEXT,
         booking_status TEXT,
-        wedding_date   TEXT,
-        created_at     TEXT NOT NULL,
-        updated_at     TEXT NOT NULL,
-        doc            TEXT NOT NULL
+        wedding_date   TIMESTAMPTZ,
+        created_at     TIMESTAMPTZ NOT NULL,
+        updated_at     TIMESTAMPTZ NOT NULL,
+        doc            JSONB NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_profiles_email        ON profiles(email);
-      CREATE INDEX IF NOT EXISTS idx_profiles_wedding_date ON profiles(wedding_date);
-      CREATE INDEX IF NOT EXISTS idx_profiles_status       ON profiles(booking_status);
+      CREATE INDEX IF NOT EXISTS idx_profiles_tenant  ON profiles(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_profiles_email   ON profiles(tenant_id, lower(email));
+      CREATE INDEX IF NOT EXISTS idx_profiles_wedding ON profiles(tenant_id, wedding_date);
+      CREATE INDEX IF NOT EXISTS idx_profiles_status  ON profiles(tenant_id, booking_status);
 
       CREATE TABLE IF NOT EXISTS events (
         id          TEXT PRIMARY KEY,
+        tenant_id   TEXT NOT NULL,
         profile_id  TEXT NOT NULL,
         name        TEXT NOT NULL,
-        occurred_at TEXT NOT NULL,
-        doc         TEXT NOT NULL
+        occurred_at TIMESTAMPTZ NOT NULL,
+        doc         JSONB NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_events_profile  ON events(profile_id);
-      CREATE INDEX IF NOT EXISTS idx_events_name     ON events(name);
-      CREATE INDEX IF NOT EXISTS idx_events_occurred ON events(occurred_at);
+      CREATE INDEX IF NOT EXISTS idx_events_tenant   ON events(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_events_profile  ON events(tenant_id, profile_id);
+      CREATE INDEX IF NOT EXISTS idx_events_name     ON events(tenant_id, name);
+      CREATE INDEX IF NOT EXISTS idx_events_occurred ON events(tenant_id, occurred_at DESC);
 
       CREATE TABLE IF NOT EXISTS messages (
         id          TEXT PRIMARY KEY,
+        tenant_id   TEXT NOT NULL,
         profile_id  TEXT NOT NULL,
         journey_key TEXT,
         message_key TEXT,
         channel     TEXT,
         status      TEXT,
-        sent_at     TEXT NOT NULL,
-        doc         TEXT NOT NULL
+        sent_at     TIMESTAMPTZ NOT NULL,
+        doc         JSONB NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_messages_profile ON messages(profile_id);
-      CREATE INDEX IF NOT EXISTS idx_messages_journey ON messages(journey_key);
-      CREATE INDEX IF NOT EXISTS idx_messages_sent_at ON messages(sent_at);
+      CREATE INDEX IF NOT EXISTS idx_messages_tenant  ON messages(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_messages_profile ON messages(tenant_id, profile_id);
+      CREATE INDEX IF NOT EXISTS idx_messages_journey ON messages(tenant_id, journey_key);
+      CREATE INDEX IF NOT EXISTS idx_messages_sent_at ON messages(tenant_id, sent_at DESC);
 
       CREATE TABLE IF NOT EXISTS documents (
-        key        TEXT PRIMARY KEY,
-        value      TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        tenant_id  TEXT NOT NULL,
+        key        TEXT NOT NULL,
+        value      JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (tenant_id, key)
       );
     `,
   },
 ];
 
-function migrate(connection: DatabaseSync): void {
-  connection.exec(`
+async function migrate(handle: Db): Promise<void> {
+  await handle.exec(`
     CREATE TABLE IF NOT EXISTS migrations (
       name       TEXT PRIMARY KEY,
-      applied_at TEXT NOT NULL
+      applied_at TIMESTAMPTZ NOT NULL
     );
   `);
 
   const applied = new Set(
-    (connection.prepare("SELECT name FROM migrations").all() as { name: string }[]).map(
+    (await handle.query<{ name: string }>("SELECT name FROM migrations")).map(
       (row) => row.name,
     ),
   );
 
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.name)) continue;
-    connection.exec(migration.sql);
-    connection
-      .prepare("INSERT INTO migrations (name, applied_at) VALUES (?, ?)")
-      .run(migration.name, new Date().toISOString());
+    await handle.exec(migration.sql);
+    await handle.query("INSERT INTO migrations (name, applied_at) VALUES ($1, $2)", [
+      migration.name,
+      new Date().toISOString(),
+    ]);
   }
 }
 
-/** True when the database has never been populated. */
-export function isEmpty(): boolean {
-  const row = db().prepare("SELECT COUNT(*) AS n FROM profiles").get() as { n: number };
-  const docs = db().prepare("SELECT COUNT(*) AS n FROM documents").get() as { n: number };
-  return row.n === 0 && docs.n === 0;
-}
-
-/** Closes the connection. Used by scripts; the server keeps it open. */
-export function closeDb(): void {
-  database?.close();
-  database = null;
+/** True when this tenant has no data yet. */
+export async function isEmpty(): Promise<boolean> {
+  const handle = await db();
+  const [profiles] = await handle.query<{ n: string }>(
+    "SELECT COUNT(*) AS n FROM profiles WHERE tenant_id = $1",
+    [DEFAULT_TENANT],
+  );
+  const [documents] = await handle.query<{ n: string }>(
+    "SELECT COUNT(*) AS n FROM documents WHERE tenant_id = $1",
+    [DEFAULT_TENANT],
+  );
+  // Postgres returns COUNT as a string (bigint), so compare numerically.
+  return Number(profiles.n) === 0 && Number(documents.n) === 0;
 }

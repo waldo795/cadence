@@ -3,7 +3,7 @@ import { ensureSeeded } from "@/server/seed-db";
 import { listEvents, listMessages, listProfiles, readAllDocuments } from "@/server/store";
 import type { Snapshot } from "@/shared/keys";
 
-// node:sqlite is unavailable on the edge runtime.
+// The Postgres drivers need Node APIs; they do not run on the edge runtime.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -16,14 +16,16 @@ export const dynamic = "force-dynamic";
  * snapshot is far cheaper than the round trips a per-collection API would cost.
  */
 export async function GET() {
-  ensureSeeded();
+  await ensureSeeded();
 
-  const snapshot: Snapshot = {
-    profiles: listProfiles(),
-    events: listEvents(),
-    messages: listMessages(),
-    documents: readAllDocuments(),
-  };
+  const [profiles, events, messages, documents] = await Promise.all([
+    listProfiles(),
+    listEvents(),
+    listMessages(),
+    readAllDocuments(),
+  ]);
+
+  const snapshot: Snapshot = { profiles, events, messages, documents };
 
   return NextResponse.json(snapshot, {
     headers: { "Cache-Control": "no-store" },

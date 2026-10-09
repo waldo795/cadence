@@ -159,8 +159,8 @@ export function isSpam(input: IntakeInput): boolean {
  * preference, and quietly keeping an older, more permissive answer is exactly
  * the behaviour that gets a business in trouble.
  */
-export function recordIntake(clean: CleanIntake, now = new Date()): IntakeResult {
-  const existing = findProfileByEmail(clean.email);
+export async function recordIntake(clean: CleanIntake, now = new Date()): Promise<IntakeResult> {
+  const existing = await findProfileByEmail(clean.email);
   const created = existing === null;
 
   const id =
@@ -214,7 +214,7 @@ export function recordIntake(clean: CleanIntake, now = new Date()): IntakeResult
     segmentNote: existing?.segmentNote ?? "Captured from the website enquiry form.",
   };
 
-  upsertProfile(profile);
+  await upsertProfile(profile);
 
   const event: CustomerEvent = {
     id: `evt_${Math.random().toString(36).slice(2, 10)}`,
@@ -233,7 +233,7 @@ export function recordIntake(clean: CleanIntake, now = new Date()): IntakeResult
     },
   };
 
-  insertEvents([event]);
+  await insertEvents([event]);
 
   return { ok: true, profileId: id, created };
 }

@@ -72,8 +72,9 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle>Storage</CardTitle>
             <p className="text-[12px] text-muted-foreground">
-              Everything is stored in a SQLite database on this machine at <code>data/cadence.db</code>,
-              not in the browser — so the data survives clearing site data and is reachable by an API.
+              Everything is stored in Postgres, not in the browser — so the data survives
+              clearing site data and is reachable by an API. Locally that is PGlite in{" "}
+              <code>data/pg</code>; set <code>DATABASE_URL</code> to point at a hosted server.
             </p>
           </CardHeader>
           <CardContent className="pt-0">

@@ -17,8 +17,8 @@ Client + Wedding date → Scheduled trigger → Event → Journey → Decisions 
 
 **Works today, on this machine**
 
-- Adding clients through the sign-up page. They are written to a **SQLite database on disk**,
-  so they survive a refresh, a browser change, clearing site data and restarting the server.
+- Adding clients through the sign-up page. They are written to **Postgres**, so they survive
+  a refresh, a browser change, clearing site data and restarting the server.
 - **The website enquiry endpoint** (`POST /api/intake`) — validated, spam-trapped, rate
   limited, and de-duplicating by email so nobody is entered twice.
 - Countdown triggers evaluating every client and emitting events when a milestone arrives.
@@ -95,8 +95,8 @@ needs a shared store or a WAF in front.
 
 ## Running locally
 
-Requires **Node.js 22 or newer** — the database uses `node:sqlite`, which is built into Node,
-so there is nothing to install and no native compilation.
+Requires **Node.js 20 or newer**. No database to install: with no `DATABASE_URL` set the app
+runs PGlite, which is Postgres itself compiled to WebAssembly, against `data/pg`.
 
 ```bash
 npm install
@@ -405,17 +405,37 @@ it.
 ### Storage is split by who writes it
 
 Profiles, events and messages are **rows**. Journeys, triggers, the contact policy and
-experiments are **JSON documents** in a key/value table.
+experiments are **jsonb documents** in a key/value table.
 
-The split is not about size, it is about concurrency. The website intake endpoint and the
-trigger cron are both about to write clients and events, and they can fire at the same
-moment — a read-modify-write of a whole collection would silently drop one of them. Rows with
-targeted upserts cannot. Configuration has exactly one writer, the UI, one change at a time,
-so documents are safe there and avoid a large mapping layer for deeply nested structures.
+The split is about concurrency, not size. The website intake endpoint and the trigger cron
+both write clients and events and can fire at the same moment — a read-modify-write of a
+whole collection would silently drop one of them. Rows with targeted upserts cannot.
+Configuration has exactly one writer, the UI, one change at a time.
 
-The `doc` column holds the full domain object; the extracted columns exist only to be
-indexed. Adding a field to a domain type therefore needs no migration, while `wedding_date`
-and `booking_status` stay queryable for the scheduler.
+The `doc` column holds the full domain object and stays the source of truth; the extracted
+columns exist only to be indexed. Adding a field to a domain type therefore needs no
+migration, while `wedding_date` and `booking_status` stay queryable for the scheduler.
+
+### Postgres, locally and in production
+
+With `DATABASE_URL` unset the app runs **PGlite** — Postgres compiled to WebAssembly,
+in-process, storing to `data/pg`. It is not an emulation: it is the same engine, so the SQL,
+the types and the transaction semantics match production exactly. That means there is no
+database to install to work on this, and the tested surface equals the shipped surface,
+because only the connection differs.
+
+Set `DATABASE_URL` and the same statements run against a real server through `pg`.
+
+```bash
+DATABASE_URL="postgresql://user:pass@host:5432/dbname" npm run dev
+```
+
+### Multi-tenancy from the start
+
+Every table carries `tenant_id` and every query filters on it, even though there is one
+tenant today. Retrofitting that across every table and every query later is miserable; doing
+it now costs nothing and means a second workspace becomes a configuration change rather than
+a migration. Override with `CADENCE_TENANT_ID`.
 
 ### Service boundaries
 
@@ -423,16 +443,16 @@ and `booking_status` stay queryable for the scheduler.
 
 | Interface | PoC implementation | Later |
 | --- | --- | --- |
-| `JourneyRepository` | SQLite documents | Postgres |
+| `JourneyRepository` | Postgres jsonb documents | same, hosted |
 | `ProfileRepository` | seeded fixtures | profile store / CDP |
 | `EventRepository` | seeded fixtures | event log |
 | `ChannelProvider` | records and returns `simulated` | SES, FCM/APNS, SMS |
 | `PolicyEvaluator` | explicit rule set | consent & preference service |
 | `FrequencyGovernor` | resolves caps from the local policy | central governance service |
-| `ExperimentRepository` | SQLite documents | experiment platform API |
+| `ExperimentRepository` | Postgres jsonb documents | experiment platform API |
 | `ExperimentDirectory` | in-memory lookup on entry | experiment assignment service |
-| exposure ledger | SQLite documents + seeded aggregates | ClickHouse / warehouse |
-| `ContactPolicyRepository` | SQLite documents | Postgres |
+| exposure ledger | Postgres documents + seeded aggregates | ClickHouse / warehouse |
+| `ContactPolicyRepository` | Postgres jsonb documents | same, hosted |
 | `JourneyDirectory` | resolves lineage keys locally | journey registry |
 | `JourneyExecutor` | in-process virtual-clock walk | durable workflow engine |
 
@@ -483,8 +503,9 @@ audience segmentation, AI features and deployment infrastructure.
 
 ## Known limitations
 
-- Everything persists to a SQLite database at `data/cadence.db`. It is a real database with
-  an HTTP API in front of it, but it only runs on this machine — there is no hosting yet.
+- Everything persists to Postgres. Locally that is PGlite (the real Postgres engine compiled
+  to WASM) in `data/pg`; in production, set `DATABASE_URL` and it is an ordinary Postgres
+  server. Same SQL either way.
 - The client fetches the whole dataset once at start-up and reads it synchronously from an
   in-memory cache. Fine at hundreds of records; it would need pagination in the thousands.
 - Writes are optimistic — the UI updates first and the save happens in the background. A

@@ -23,37 +23,37 @@ import {
  * relative dates. Without it, "91 days before the wedding" would drift each
  * time the app restarted and the countdown demo would stop lining up.
  */
-export function seedDatabase(now = new Date()): void {
+export async function seedDatabase(now = new Date()): Promise<void> {
   const profiles = seedProfiles(now);
 
-  upsertProfiles(profiles);
-  insertEvents(seedEvents(now, profiles.map((profile) => profile.id)));
-  insertMessages(seedMessages(now, profiles));
+  await upsertProfiles(profiles);
+  await insertEvents(seedEvents(now, profiles.map((profile) => profile.id)));
+  await insertMessages(seedMessages(now, profiles));
 
   const experiments = seedExperiments();
 
-  writeDocument(DOCUMENT_KEYS.seededAt, now.toISOString());
-  writeDocument(DOCUMENT_KEYS.journeys, seedJourneys(now));
-  writeDocument(DOCUMENT_KEYS.eventTemplates, seedEventTemplates(now));
-  writeDocument(DOCUMENT_KEYS.participations, seedParticipations(now, profiles));
-  writeDocument(DOCUMENT_KEYS.contactPolicy, seedContactPolicy());
-  writeDocument(DOCUMENT_KEYS.experiments, experiments);
-  writeDocument(DOCUMENT_KEYS.scheduledTriggers, seedScheduledTriggers());
-  writeDocument(DOCUMENT_KEYS.firedTriggers, []);
-  writeDocument(DOCUMENT_KEYS.experimentBaselines, seedExperimentBaselines());
-  writeDocument(
+  await writeDocument(DOCUMENT_KEYS.seededAt, now.toISOString());
+  await writeDocument(DOCUMENT_KEYS.journeys, seedJourneys(now));
+  await writeDocument(DOCUMENT_KEYS.eventTemplates, seedEventTemplates(now));
+  await writeDocument(DOCUMENT_KEYS.participations, seedParticipations(now, profiles));
+  await writeDocument(DOCUMENT_KEYS.contactPolicy, seedContactPolicy());
+  await writeDocument(DOCUMENT_KEYS.experiments, experiments);
+  await writeDocument(DOCUMENT_KEYS.scheduledTriggers, seedScheduledTriggers());
+  await writeDocument(DOCUMENT_KEYS.firedTriggers, []);
+  await writeDocument(DOCUMENT_KEYS.experimentBaselines, seedExperimentBaselines());
+  await writeDocument(
     DOCUMENT_KEYS.exposures,
     seedExperimentExposures(now, experiments, profiles.map((profile) => profile.id)),
   );
 }
 
 /** Seeds only if nothing is there, so a restart never overwrites real clients. */
-export function ensureSeeded(): void {
-  if (!isEmpty()) return;
-  seedDatabase();
+export async function ensureSeeded(): Promise<void> {
+  if (!(await isEmpty())) return;
+  await seedDatabase();
 }
 
-export function resetDatabase(): void {
-  clearAll();
-  seedDatabase();
+export async function resetDatabase(): Promise<void> {
+  await clearAll();
+  await seedDatabase();
 }
