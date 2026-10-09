@@ -15,6 +15,8 @@ export const DOCUMENT_KEYS = {
   firedTriggers: "firedTriggers",
   exposures: "exposures",
   experimentBaselines: "experimentBaselines",
+  privacyRequests: "privacyRequests",
+  suppression: "suppression",
   seededAt: "seededAt",
 } as const;
 

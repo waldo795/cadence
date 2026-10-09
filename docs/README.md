@@ -30,6 +30,7 @@ is built, what is not finished. This folder is about *using* it.
 
 | Guide | What it covers |
 | --- | --- |
+| [Privacy requests](privacy-requests.md) | Access and erasure requests: the deadline, the identity check, and what erasure actually removes. |
 | [Deploying](deployment.md) | Hosting it for real: what to set, what fails loudly, what to do before real client data goes in. |
 
 ## Conventions in these guides

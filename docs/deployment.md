@@ -122,6 +122,7 @@ Hosting makes the app reachable. It does not make it lawful to start messaging p
       yet
 - [ ] **A backup** — Supabase free has none
 - [ ] **Check consent wording** on the form matches what you actually intend to send
+- [x] **A way to service access and erasure requests** — see [Privacy requests](privacy-requests.md)
 
 Transactional messages (a booking confirmation someone asked for) rest on a different footing
 to marketing ones (an upsell). The product already separates consent per channel; the
