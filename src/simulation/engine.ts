@@ -141,9 +141,21 @@ export class SimulationEngine implements JourneyExecutor {
      * profile id), so a profile re-entering resolves to the same variant every
      * time — including after the journey has been rebuilt.
      */
-    const experiment = request.experiments?.findLiveForJourney(journey.key) ?? null;
-    const assignment = experiment ? assignProfile(experiment, profile.id) : undefined;
+    const resuming = Boolean(request.startNodeId);
+    const waitMode = request.waitMode ?? "fast_forward";
+
+    // On resume the assignment is replayed from the instance rather than
+    // recomputed. It would in fact hash to the same variant, but reading it
+    // back means a reallocation edited after entry cannot move someone who is
+    // already mid-journey.
+    const experiment = resuming
+      ? null
+      : (request.experiments?.findLiveForJourney(journey.key) ?? null);
+    const assignment =
+      request.assignment ?? (experiment ? assignProfile(experiment, profile.id) : undefined);
     const heldOut = assignment?.treatment.kind === "holdout";
+
+    let suspended: { resumeNodeId: string; wakeAt: string } | undefined;
 
     const steps: SimulationStep[] = [];
     const visitedNodeIds: string[] = [];
@@ -184,7 +196,47 @@ export class SimulationEngine implements JourneyExecutor {
       return step;
     };
 
-    const entry = findEntryNode(journey);
+    const nodesById = new Map(journey.nodes.map((node) => [node.id, node]));
+
+    // Resuming starts at the stored node; a fresh run starts at the entry.
+    const entry = request.startNodeId
+      ? nodesById.get(request.startNodeId)
+      : findEntryNode(journey);
+
+    /*
+     * Records the wait and stops the walk.
+     *
+     * Resumption points at the node *after* the wait, not the wait itself:
+     * once the clock reaches `wakeAt` the wait is finished, and resuming onto
+     * it would re-arm the same delay every time.
+     */
+    const suspendHere = (
+      node: JourneyNode,
+      wakeAt: Date,
+      detail: string,
+    ): { resumeNodeId: string; wakeAt: string } | undefined => {
+      const onward = journey.edges.find(
+        (edge) => edge.source === node.id && edge.sourceHandle === "out",
+      );
+
+      push({
+        node,
+        title: "Waiting",
+        detail,
+        outcome: "WAITING",
+        explanation: onward
+          ? `Paused here until ${wakeAt.toISOString()}.`
+          : `Reached ${wakeAt.toISOString()} with nothing connected after this wait, so the journey ends here.`,
+      });
+
+      // A wait with no outgoing edge is the end of the path. Suspending would
+      // park the instance forever waiting to resume into nothing.
+      if (!onward) return undefined;
+
+      visitedNodeIds.push(node.id);
+      return { resumeNodeId: onward.target, wakeAt: wakeAt.toISOString() };
+    };
+
     if (!entry) {
       return {
         journeyId: journey.id,
@@ -202,12 +254,11 @@ export class SimulationEngine implements JourneyExecutor {
         skippedEdgeIds: [],
         messages: [],
         withheldMessages: [],
-        summary:
-          "This journey has no entry node, so there is nothing to simulate.",
+        summary: request.startNodeId
+          ? `Cannot resume: node "${request.startNodeId}" no longer exists in this version of the journey.`
+          : "This journey has no entry node, so there is nothing to simulate.",
       };
     }
-
-    const nodesById = new Map(journey.nodes.map((node) => [node.id, node]));
     const edgeFor = (nodeId: string, handle: string): JourneyEdge | undefined =>
       journey.edges.find(
         (edge) => edge.source === nodeId && edge.sourceHandle === handle,
@@ -216,7 +267,7 @@ export class SimulationEngine implements JourneyExecutor {
     let current: JourneyNode | undefined = entry;
     let guard = 0;
 
-    while (current && guard < MAX_STEPS) {
+    while (current && guard < MAX_STEPS && !suspended) {
       guard += 1;
       const node: JourneyNode = current;
       visitedNodeIds.push(node.id);
@@ -441,16 +492,20 @@ export class SimulationEngine implements JourneyExecutor {
 
         case "wait": {
           const before = virtualTime;
-          virtualTime = addDuration(
-            virtualTime,
-            node.config.duration,
-            node.config.unit,
-          );
+          const wakeAt = addDuration(before, node.config.duration, node.config.unit);
+          const described = describeDuration(node.config.duration, node.config.unit);
+
+          if (waitMode === "suspend") {
+            suspended = suspendHere(node, wakeAt, described);
+            break;
+          }
+
+          virtualTime = wakeAt;
           current = advance(
             {
               node,
               title: "Wait elapsed",
-              detail: describeDuration(node.config.duration, node.config.unit),
+              detail: described,
               outcome: "WAITING",
               explanation: `Virtual clock advanced from ${before.toISOString()} to ${virtualTime.toISOString()}.`,
             },
@@ -479,6 +534,28 @@ export class SimulationEngine implements JourneyExecutor {
             break;
           }
           const before = virtualTime;
+
+          if (waitMode === "suspend") {
+            // A wake time already in the past needs no suspension — fall
+            // straight through, or a backdated "48 hours before" would park
+            // the instance forever instead of catching up.
+            if (resolution.wakeAt.getTime() > before.getTime()) {
+              suspended = suspendHere(node, resolution.wakeAt, node.config.expression);
+              break;
+            }
+            current = advance(
+              {
+                node,
+                title: "Wait already passed",
+                detail: node.config.expression,
+                outcome: "WAITING",
+                explanation: `${resolution.explanation}. That moment has already passed, so the journey continues immediately.`,
+              },
+              "out",
+            );
+            break;
+          }
+
           if (resolution.wakeAt.getTime() > virtualTime.getTime()) {
             virtualTime = resolution.wakeAt;
           }
@@ -751,6 +828,11 @@ export class SimulationEngine implements JourneyExecutor {
       summary = `Stopped after ${MAX_STEPS} steps — the journey appears to contain a loop.`;
     }
 
+    if (suspended) {
+      status = "waiting";
+      summary = `${profile.firstName} is paused until ${suspended.wakeAt}.`;
+    }
+
     if (!summary) {
       summary = `${profile.firstName} completed the journey with ${messages.length} simulated message${messages.length === 1 ? "" : "s"}.`;
     }
@@ -772,6 +854,7 @@ export class SimulationEngine implements JourneyExecutor {
       profileName: `${profile.firstName} ${profile.lastName}`,
       eventName: event.name,
       assignment,
+      suspended,
       startedAt: event.occurredAt,
       endedAt: virtualTime.toISOString(),
       status,

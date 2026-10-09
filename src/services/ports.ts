@@ -192,6 +192,25 @@ export interface ExecutionRequest {
   resolveJourney?: (journeyKey: string) => JourneyDefinition | null;
   /** Internal: guards against a fork chain looping back on itself. */
   delegationDepth?: number;
+
+  /**
+   * Where to begin. Omitted means the journey's entry node, which also runs
+   * the experiment lookup; supplied means resuming a live instance, so entry
+   * is skipped and `assignment` must be passed in instead.
+   */
+  startNodeId?: string;
+  /** The variant frozen at entry, replayed on every resumption. */
+  assignment?: import("@/domain/experiment").ExperimentAssignment;
+  /**
+   * What a Wait node does.
+   *
+   * `fast_forward` advances a virtual clock and keeps walking — the simulator,
+   * which is why a three-month journey previews instantly. `suspend` stops and
+   * reports when to come back, which is what a live instance does.
+   *
+   * Both modes run the same walk, so a preview cannot drift from production.
+   */
+  waitMode?: "fast_forward" | "suspend";
 }
 
 /**

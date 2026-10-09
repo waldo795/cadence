@@ -239,6 +239,43 @@ const MIGRATIONS: { name: string; sql: string }[] = [
       );
     `,
   },
+  {
+    name: "002_journey_instances",
+    sql: `
+      CREATE TABLE IF NOT EXISTS journey_instances (
+        id              TEXT PRIMARY KEY,
+        tenant_id       TEXT NOT NULL,
+        profile_id      TEXT NOT NULL,
+        journey_key     TEXT NOT NULL,
+        journey_id      TEXT NOT NULL,
+        status          TEXT NOT NULL,
+        current_node_id TEXT,
+        wake_at         TIMESTAMPTZ,
+        entered_at      TIMESTAMPTZ NOT NULL,
+        updated_at      TIMESTAMPTZ NOT NULL,
+        completed_at    TIMESTAMPTZ,
+        doc             JSONB NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_instances_tenant  ON journey_instances(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_instances_profile ON journey_instances(tenant_id, profile_id);
+      CREATE INDEX IF NOT EXISTS idx_instances_journey ON journey_instances(tenant_id, journey_key);
+
+      -- The scheduler's only query: what is due. Partial, because finished
+      -- instances vastly outnumber waiting ones over time and should not be
+      -- scanned on every tick.
+      CREATE INDEX IF NOT EXISTS idx_instances_due
+        ON journey_instances(tenant_id, wake_at)
+        WHERE status = 'waiting';
+
+      -- One live instance per profile per journey. Enforced in the database
+      -- rather than only in code, because the intake endpoint and the cron can
+      -- both try to start one at the same moment, and a duplicate would send
+      -- every remaining message twice.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_instances_one_active
+        ON journey_instances(tenant_id, profile_id, journey_key)
+        WHERE status IN ('running', 'waiting');
+    `,
+  },
 ];
 
 async function migrate(handle: Db): Promise<void> {

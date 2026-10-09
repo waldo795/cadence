@@ -8,6 +8,7 @@ import { seedProfiles } from "@/seed/profiles";
 import { seedScheduledTriggers } from "@/seed/scheduled-triggers";
 import { DOCUMENT_KEYS } from "@/shared/keys";
 import { isEmpty } from "./db";
+import { clearInstances } from "./instances";
 import {
   clearAll,
   insertEvents,
@@ -55,5 +56,6 @@ export async function ensureSeeded(): Promise<void> {
 
 export async function resetDatabase(): Promise<void> {
   await clearAll();
+  await clearInstances();
   await seedDatabase();
 }

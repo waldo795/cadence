@@ -31,11 +31,12 @@ const NAV: NavItem[] = [
   { href: "/", label: "Overview", icon: <LayoutDashboard /> },
   { href: "/journeys", label: "Journeys", icon: <GitBranch /> },
   { href: "/profiles", label: "Clients", icon: <Users /> },
+  { href: "/instances", label: "Running", icon: <Activity /> },
   { href: "/triggers", label: "Triggers", icon: <CalendarClock /> },
   { href: "/signup", label: "Add client", icon: <UserPlus /> },
   { href: "/experiments", label: "Experiments", icon: <FlaskConical /> },
   { href: "/governance", label: "Governance", icon: <ShieldCheck /> },
-  { href: "/events", label: "Events", icon: <Activity />, preview: true },
+  { href: "/events", label: "Events", icon: <Waypoints />, preview: true },
   { href: "/connections", label: "Connections", icon: <Plug />, preview: true },
   { href: "/settings", label: "Settings", icon: <Settings />, preview: true },
 ];

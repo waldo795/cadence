@@ -100,6 +100,12 @@ export interface SimulationRun {
   assignment?: ExperimentAssignment;
   /** Set when the profile was routed out of the entry journey into a fork. */
   delegatedTo?: { journeyId: string; journeyKey: string; journeyName: string; version: number };
+  /**
+   * Present when the walk stopped at a Wait rather than finishing — the live
+   * execution path. `resumeNodeId` is the node *after* the wait, because the
+   * wait itself is complete once the clock reaches `wakeAt`.
+   */
+  suspended?: { resumeNodeId: string; wakeAt: string };
   /** Messages a holdout prevented — the measurement counterfactual. */
   withheldMessages: RenderedMessage[];
   startedAt: string;

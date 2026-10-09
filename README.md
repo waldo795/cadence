@@ -11,6 +11,8 @@ Client + Wedding date → Scheduled trigger → Event → Journey → Decisions 
 > **All client data is fictional.** Every client, event and message in the seed was invented
 > for the demo. No message is ever actually sent to anyone.
 
+**[User guide →](docs/README.md)** — what each capability does and why it behaves that way.
+
 ---
 
 ## Read this first — what does and does not work
@@ -30,8 +32,8 @@ Client + Wedding date → Scheduled trigger → Event → Journey → Decisions 
 - **No public URL.** The intake endpoint is built and tested, but the app only runs on this
   machine, so a form on her website has nowhere to post to. Hosting is the only thing left
   for this one.
-- **Nothing fires on a schedule.** "Run due triggers" is a button someone presses. A real
-  deployment needs a cron job calling the same evaluation every few minutes.
+- **Nothing fires on a schedule yet.** The scheduler endpoint exists (`POST /api/cron`) and
+  works; it just needs a hosted cron pointed at it.
 - **No email or SMS is sent.** Sends are simulated and recorded.
 
 So this is a real tool for *designing and pressure-testing* the journeys, and a real client
