@@ -117,12 +117,25 @@ export function createResendTransport(options: ResendOptions): EmailTransport {
 export function transportFromEnv():
   | { ok: true; transport: EmailTransport; from: string }
   | { ok: false; reason: string } {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const apiKey = readEnv("RESEND_API_KEY");
   if (!apiKey) {
     return { ok: false, reason: "RESEND_API_KEY is not set." };
   }
 
-  const from = process.env.EMAIL_FROM?.trim();
+  /*
+   * Caught early, because the provider's own answer to a quoted key is
+   * "API key is invalid" — which sends you looking at the key in Resend
+   * rather than at the quotation marks around it in the host's UI.
+   */
+  if (!apiKey.startsWith("re_")) {
+    return {
+      ok: false,
+      reason:
+        "RESEND_API_KEY does not look like a Resend key — they begin with \"re_\". Check for quotation marks or stray characters around the value, and that the whole key was pasted.",
+    };
+  }
+
+  const from = readEnv("EMAIL_FROM");
   if (!from) {
     return {
       ok: false,
@@ -137,7 +150,22 @@ export function transportFromEnv():
     transport: createResendTransport({
       apiKey,
       from,
-      replyTo: process.env.EMAIL_REPLY_TO?.trim() || undefined,
+      replyTo: readEnv("EMAIL_REPLY_TO") || undefined,
     }),
   };
+}
+
+/**
+ * Reads a variable, tolerating how hosting dashboards mangle pasted values.
+ *
+ * Railway and friends store exactly what was typed, so a value pasted with
+ * the surrounding quotes from an example — or with a trailing newline picked
+ * up by the copy — is kept verbatim and then rejected by the provider for
+ * reasons that point nowhere near the real cause. `passwordMatches()` already
+ * does the same for `APP_PASSWORD`, for the same reason.
+ */
+function readEnv(name: string): string {
+  const raw = process.env[name]?.trim();
+  if (!raw) return "";
+  return raw.replace(/^(['"])([\s\S]*)\1$/, "$2").trim();
 }
