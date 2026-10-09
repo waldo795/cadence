@@ -17,6 +17,9 @@ export const DOCUMENT_KEYS = {
   experimentBaselines: "experimentBaselines",
   privacyRequests: "privacyRequests",
   suppression: "suppression",
+  sendSettings: "sendSettings",
+  testRecipients: "testRecipients",
+  sendingControls: "sendingControls",
   seededAt: "seededAt",
 } as const;
 

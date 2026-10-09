@@ -14,6 +14,7 @@ import type { FrequencyGovernor } from "@/services/ports";
 import { simulationEngine } from "@/simulation/engine";
 import type { RenderedMessage, SimulationRun } from "@/simulation/types";
 import { DOCUMENT_KEYS } from "@/shared/keys";
+import { dispatch, loadSendingContext } from "./dispatch";
 import { activeInstance, dueInstances, saveInstance } from "./instances";
 import {
   insertMessages,
@@ -51,6 +52,8 @@ export interface SliceResult {
   run: SimulationRun;
   /** Messages this slice decided to send. */
   sends: RenderedMessage[];
+  /** What happened to each one — sent, redirected, blocked or failed. */
+  records: MessageRecord[];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -61,6 +64,7 @@ async function loadContext() {
   const journeys = (await readDocument<JourneyDefinition[]>(DOCUMENT_KEYS.journeys)) ?? [];
   const experiments = (await readDocument<Experiment[]>(DOCUMENT_KEYS.experiments)) ?? [];
   const messages = await listMessages();
+  const sending = await loadSendingContext();
 
   /*
    * A server-side contact governor.
@@ -83,6 +87,7 @@ async function loadContext() {
   return {
     journeys,
     governor,
+    sending,
     directory: {
       resolve: (key: string): JourneyReference | null =>
         resolveJourneyByKey(key, journeys),
@@ -111,30 +116,6 @@ function statusFromRun(run: SimulationRun): InstanceStatus {
   if (run.status === "error") return "failed";
   if (run.status === "exited" || run.status === "blocked") return "exited";
   return "completed";
-}
-
-/** Turns what the engine decided to send into durable records. */
-function toMessageRecords(
-  run: SimulationRun,
-  instance: JourneyInstance,
-  now: Date,
-): MessageRecord[] {
-  return run.messages.map((message, index) => ({
-    id: `msg_${instance.id}_${instance.stepCount}_${index}`,
-    profileId: instance.profileId,
-    channel: message.channel,
-    template: message.template,
-    messageKey: message.template,
-    subject: message.subjectRendered,
-    body: message.bodyRendered,
-    // Still "simulated": nothing is delivered until the provider adapters
-    // exist. The decision and its audit trail are real; the send is not.
-    status: "simulated" as const,
-    sentAt: now.toISOString(),
-    journeyId: instance.journeyId,
-    journeyKey: instance.journeyKey,
-    journeyName: instance.journeyName,
-  }));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -199,13 +180,26 @@ async function advance(
           : undefined,
   };
 
+  /*
+   * Sending happens before the instance is saved.
+   *
+   * If the process dies between the two, the instance resumes from where it
+   * was and offers the same messages again — but each carries an idempotency
+   * key derived from the instance and step number, so the provider collapses
+   * the duplicate. The other ordering drops sends silently instead, which is
+   * the worse failure for a reminder that cannot be sent late.
+   */
+  const records =
+    run.messages.length > 0
+      ? await dispatch(run.messages, next, profile, context.sending, now, { deliver: commit })
+      : [];
+
   if (commit) {
-    const records = toMessageRecords(run, next, now);
     if (records.length > 0) await insertMessages(records);
     await saveInstance(next);
   }
 
-  return { instance: next, run, sends: run.messages };
+  return { instance: next, run, sends: run.messages, records };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -296,7 +290,14 @@ export interface ResumeSummary {
   completed: number;
   stillWaiting: number;
   failed: number;
+  /** Messages the journeys decided to send. */
   messages: number;
+  /** Of those, how many actually left the building. */
+  sent: number;
+  /** Of those, how many were redirected to a test address. */
+  testSends: number;
+  /** Of those, how many were held back by the kill switch or a journey's mode. */
+  blocked: number;
   details: { instanceId: string; profileId: string; journey: string; outcome: string }[];
 }
 
@@ -322,6 +323,9 @@ export async function resumeDueInstances(
     stillWaiting: 0,
     failed: 0,
     messages: 0,
+    sent: 0,
+    testSends: 0,
+    blocked: 0,
     details: [],
   };
 
@@ -357,6 +361,11 @@ export async function resumeDueInstances(
       const slice = await advance(instance, profile, journey, context, options);
       summary.resumed += 1;
       summary.messages += slice.sends.length;
+      for (const record of slice.records) {
+        if (record.status === "sent") summary.sent += 1;
+        else if (record.status === "test") summary.testSends += 1;
+        else if (record.status === "blocked") summary.blocked += 1;
+      }
 
       if (slice.instance.status === "waiting") summary.stillWaiting += 1;
       else if (slice.instance.status === "failed") summary.failed += 1;

@@ -185,8 +185,8 @@ export default function InstancesPage() {
             </Card>
 
             <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-              Messages are recorded, not delivered — nothing reaches a real inbox or phone
-              yet. See{" "}
+              Whether a message is really delivered depends on each journey&apos;s send mode
+              and the workspace kill switch. See{" "}
               <Link href="/journeys" className="underline underline-offset-2">
                 journeys
               </Link>{" "}

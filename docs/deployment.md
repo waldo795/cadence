@@ -132,8 +132,10 @@ unsubscribe route is the missing piece.
 
 Being honest about what hosting does and does not buy:
 
-- **No email or SMS is sent.** Every send is recorded as `simulated`. The provider adapters
-  are not built.
+- **Email can be sent; nothing else can.** Set `RESEND_API_KEY` and `EMAIL_FROM` and a
+  journey set to live will really email clients. Push and SMS have no provider, so those
+  sends are recorded and go nowhere. Every journey starts at "not sending", and the
+  workspace kill switch stops everything at once — see [Sending email](sending-email.md).
 - **SMS is modelled as email nodes.** Journeys labelled "SMS · …" use `send_email` nodes
   because there is no `send_sms` node kind yet. This must be fixed before connecting a real
   provider, or SMS copy would go out by email.

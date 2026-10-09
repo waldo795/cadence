@@ -6,6 +6,7 @@ import { AlertTriangle, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { hydrate, isHydrated, setWriteErrorHandler } from "@/services/storage";
 import { Button } from "@/components/ui/button";
+import { SendingBanner } from "./sending-controls";
 import { Sidebar } from "./sidebar";
 
 /**
@@ -112,9 +113,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
    * bounces straight back to signing in.
    */
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar />
-      <main className="scroll-slim flex-1 overflow-y-auto">{children}</main>
+    <div className="flex h-screen flex-col overflow-hidden">
+      {/* Above the sidebar rather than inside the page, so no route can omit it. */}
+      <SendingBanner />
+      <div className="flex min-h-0 flex-1">
+        <Sidebar />
+        <main className="scroll-slim flex-1 overflow-y-auto">{children}</main>
+      </div>
     </div>
   );
 }

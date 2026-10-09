@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Copy,
   GitBranch,
+  Mail,
   MoreHorizontal,
   Plus,
   Search,
@@ -14,8 +15,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { createNode, type JourneyDefinition } from "@/domain/journey";
+import { modeFor, type SendMode } from "@/domain/sending";
 import { formatRelative } from "@/domain/time";
 import { journeyRepository } from "@/services/local-store";
+import { getControls, getSendSettings } from "@/services/sending";
+import { SendModeBadge, SendModeDialog } from "@/components/journey/send-mode-dialog";
 import { useJourneyActivity, useJourneys } from "@/hooks/use-data";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +50,18 @@ export default function JourneysPage() {
   const activeCounts = useJourneyActivity(journeys);
   const [query, setQuery] = React.useState("");
   const [pendingDelete, setPendingDelete] = React.useState<JourneyDefinition | null>(null);
+  const [sendModeFor, setSendModeFor] = React.useState<JourneyDefinition | null>(null);
+
+  /*
+   * Bumped after the dialog saves, purely to force a re-render. Send settings
+   * live in documents rather than in the journey list this page subscribes to,
+   * so nothing else would tell the rows their badge is out of date. Read on
+   * every render rather than memoised against the counter — both are cheap
+   * lookups in the hydrated cache, and a stale badge here would misreport
+   * whether a journey is emailing real clients.
+   */
+  const [, setSendingVersion] = React.useState(0);
+  const sending = { settings: getSendSettings(), controls: getControls() };
 
   const filtered = journeys.filter((journey) => {
     const term = query.trim().toLowerCase();
@@ -149,8 +165,11 @@ export default function JourneysPage() {
                 key={journey.id}
                 journey={journey}
                 activeProfiles={activeCounts[journey.id] ?? 0}
+                sendMode={modeFor(sending.settings, journey.key)}
+                killSwitch={sending.controls.killSwitch}
                 onDuplicate={() => void duplicate(journey.id)}
                 onDelete={() => setPendingDelete(journey)}
+                onConfigureSending={() => setSendModeFor(journey)}
               />
             ))}
           </div>
@@ -174,6 +193,15 @@ export default function JourneysPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {sendModeFor ? (
+        <SendModeDialog
+          journeyKey={sendModeFor.key}
+          journeyName={sendModeFor.name}
+          onClose={() => setSendModeFor(null)}
+          onSaved={() => setSendingVersion((version) => version + 1)}
+        />
+      ) : null}
     </>
   );
 }
@@ -181,13 +209,19 @@ export default function JourneysPage() {
 function JourneyRow({
   journey,
   activeProfiles,
+  sendMode,
+  killSwitch,
   onDuplicate,
   onDelete,
+  onConfigureSending,
 }: {
   journey: JourneyDefinition;
   activeProfiles: number;
+  sendMode: SendMode;
+  killSwitch: boolean;
   onDuplicate: () => void;
   onDelete: () => void;
+  onConfigureSending: () => void;
 }) {
   const actionCount = journey.nodes.filter((node) =>
     ["send_email", "send_push", "webhook", "update_profile"].includes(node.kind),
@@ -204,6 +238,7 @@ function JourneyRow({
                 {journey.status === "published" ? "Published" : "Draft"}
               </Badge>
               <Badge tone="outline">v{journey.version}</Badge>
+              <SendModeBadge mode={sendMode} killSwitch={killSwitch} />
               {journey.tags.map((tag) => (
                 <Badge key={tag} tone="accent">
                   {tag}
@@ -247,6 +282,10 @@ function JourneyRow({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={onConfigureSending}>
+              <Mail /> Sending…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onDuplicate}>
               <Copy /> Duplicate
             </DropdownMenuItem>

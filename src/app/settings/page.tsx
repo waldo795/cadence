@@ -8,6 +8,7 @@ import { describeCap } from "@/domain/governance";
 import { getContactPolicy } from "@/services/governance";
 import { resetDemoData } from "@/services/local-store";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
+import { KillSwitchCard, TestRecipientsCard } from "@/components/shell/sending-controls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,6 +46,10 @@ export default function SettingsPage() {
       />
 
       <PageBody className="grid max-w-3xl gap-5">
+        {/* First, because it is what you come here in a hurry to find. */}
+        <KillSwitchCard />
+        <TestRecipientsCard />
+
         <Card>
           <CardHeader>
             <CardTitle>Messaging policy</CardTitle>
@@ -116,9 +121,10 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="pt-0">
             <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-              Every customer, event, message and metric in this application is fictional and
-              generated for demonstration. No real personal data is present, and no email, push or
-              SMS message is ever delivered.
+              The seeded clients, events and metrics are fictional and generated for
+              demonstration. Email is different: a journey set to live sends real email to
+              whatever address is on the client record, so reset the demo data before entering
+              anyone real. Push and SMS have no provider connected and are still only recorded.
             </p>
           </CardContent>
         </Card>

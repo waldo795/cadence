@@ -34,11 +34,14 @@ Client + Wedding date → Scheduled trigger → Event → Journey → Decisions 
   for this one.
 - **Nothing fires on a schedule yet.** The scheduler endpoint exists (`POST /api/cron`) and
   works; it just needs a hosted cron pointed at it.
-- **No email or SMS is sent.** Sends are simulated and recorded.
+- **Email can be sent; push and SMS cannot.** With `RESEND_API_KEY` and `EMAIL_FROM` set, a
+  journey put into test or live mode really sends. Push and SMS have no provider and are
+  recorded only. Every journey starts at "not sending", and a workspace kill switch stops
+  everything at once — see [Sending email](docs/sending-email.md).
 
 So this is a real tool for *designing and pressure-testing* the journeys, and a real client
-list — but it cannot yet be fed by a public website, and it will not message anyone while the
-tab is closed.
+list — but it cannot yet be fed by a public website, and nothing fires on a schedule until a
+cron is pointed at it.
 
 ### What going live would need
 

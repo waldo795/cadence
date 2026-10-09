@@ -19,6 +19,7 @@ import {
   Waypoints,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SidebarSendingSummary } from "./sending-controls";
 import { ThemeToggle } from "./theme-toggle";
 
 interface NavItem {
@@ -89,12 +90,7 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-border p-3">
-        <div className="mb-2 rounded-lg bg-surface-muted px-3 py-2.5">
-          <p className="text-[11px] font-medium text-foreground">Messages are not delivered</p>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-subtle-foreground">
-            Every send is recorded and simulated. No email or SMS provider is connected yet.
-          </p>
-        </div>
+        <SidebarSendingSummary />
         <div className="flex items-center justify-between pl-1">
           <button
             type="button"

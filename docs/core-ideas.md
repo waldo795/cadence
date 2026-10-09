@@ -98,8 +98,16 @@ Day-to-day use — seeing what is going out, editing wording, pausing things —
 require any of that. Where a capability has both a builder view and a plain one, the guides
 say which is which.
 
-## Nothing is sent yet
+## Deciding and sending are separate
 
-Every "send" in the product today is **simulated**: the decision is real, the audit trail is
-real, the message is rendered with the client's actual details — but nothing leaves the
-building. Connecting a real email and SMS provider is still to come.
+The engine answers one question: *should this person get this message?* That depends on
+consent, caps and journey logic, and it has the same right answer whether you are
+simulating or running live.
+
+Whether the message then leaves the building is a different question, answered separately
+by the journey's send mode and the workspace kill switch. A journey can be fully correct and
+still be sending nothing, on purpose.
+
+Email can now really be delivered. Push and SMS still cannot — there is no provider for
+them, so those sends are recorded and go nowhere. See
+[Sending email](sending-email.md).
