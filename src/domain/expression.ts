@@ -45,11 +45,36 @@ export function formatValue(value: unknown): string {
  * template language; a real implementation would delegate to the messaging
  * provider's own renderer.
  */
+/** ISO 8601, date or date-time. What every date in the system is stored as. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}(?:[T\s]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+
+/**
+ * Formats a value for a human to read, not for a machine to compare.
+ *
+ * Only `interpolate` uses this. A date in a message has to read "10 January
+ * 2027" — "Your wedding is on 2027-01-10T12:00:57.568Z" is not a sentence
+ * anyone can send a bride. Conditions deliberately keep the raw value, since
+ * `weddingDate equals 2027-01-10` has to go on working.
+ */
+function formatForDisplay(value: unknown): string {
+  if (typeof value === "string" && ISO_DATE.test(value.trim())) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return new Intl.DateTimeFormat("en-GB", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }).format(date);
+    }
+  }
+  return formatValue(value);
+}
+
 export function interpolate(template: string, context: EvaluationContext): string {
   return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (match, path: string) => {
     const value = resolvePath(context, path);
     if (value === undefined || value === null) return match;
-    return formatValue(value);
+    return formatForDisplay(value);
   });
 }
 

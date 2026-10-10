@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Copy, LayoutTemplate, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { Copy, LayoutTemplate, MoreHorizontal, Plus, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { blocksFor } from "@/domain/email-content";
 import {
@@ -13,6 +13,7 @@ import {
 import type { SendEmailConfig } from "@/domain/journey";
 import { formatRelative } from "@/domain/time";
 import { listTemplates, removeTemplate, saveTemplate } from "@/services/email-templates";
+import { STARTER_EMAIL_TEMPLATES } from "@/seed/email-templates";
 import { EmailDesigner } from "@/components/journey/email-designer";
 import { PageBody, PageHeader } from "@/components/shell/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +68,33 @@ export default function TemplatesPage() {
     setEditing(template);
   };
 
+  /**
+   * Installs the starter set, skipping any already present.
+   *
+   * Skipping rather than replacing: the ids are fixed, so a second press
+   * would otherwise quietly overwrite whatever had been edited since the
+   * first one.
+   */
+  const installStarters = () => {
+    const existing = new Set(listTemplates().map((item) => item.id));
+    const missing = STARTER_EMAIL_TEMPLATES.filter((item) => !existing.has(item.id));
+
+    if (missing.length === 0) {
+      toast.info("Already added", {
+        description: "Every starter template is here. Delete one to get it back.",
+      });
+      return;
+    }
+
+    for (const item of missing) {
+      saveTemplate({ ...item, blocks: structuredClone(item.blocks) });
+    }
+    refresh();
+    toast.success(`Added ${missing.length} starter template${missing.length === 1 ? "" : "s"}`, {
+      description: "Written for a bridal makeup business — edit them to suit.",
+    });
+  };
+
   const duplicate = (template: EmailTemplate) => {
     /*
      * The id is dropped rather than overridden. Passing `id: undefined`
@@ -95,9 +123,14 @@ export default function TemplatesPage() {
         title="Templates"
         description="Emails built once and reused. A journey takes a copy, so editing a template never changes an email already in a journey."
         actions={
-          <Button size="sm" onClick={create}>
-            <Plus /> New template
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button variant="secondary" size="sm" onClick={installStarters}>
+              <Sparkles /> Add starter set
+            </Button>
+            <Button size="sm" onClick={create}>
+              <Plus /> New template
+            </Button>
+          </div>
         }
       />
 
@@ -106,11 +139,16 @@ export default function TemplatesPage() {
           <EmptyState
             icon={<LayoutTemplate />}
             title="No templates yet"
-            description="Build one here, or save an email you have already designed from inside a journey."
+            description="Start from the set written for a bridal makeup business, build one here, or save an email you have already designed from inside a journey."
             action={
-              <Button size="sm" onClick={create}>
-                <Plus /> New template
-              </Button>
+              <div className="flex items-center justify-center gap-1.5">
+                <Button size="sm" onClick={installStarters}>
+                  <Sparkles /> Add starter set
+                </Button>
+                <Button variant="secondary" size="sm" onClick={create}>
+                  <Plus /> New template
+                </Button>
+              </div>
             }
           />
         ) : (
