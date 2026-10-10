@@ -1,28 +1,33 @@
 "use client";
 
 import * as React from "react";
-import { Monitor, Smartphone, TriangleAlert } from "lucide-react";
-import { blocksFor, blocksToText, mapBlockText, blockTemplateStrings } from "@/domain/email-content";
-import type { EmailBlock } from "@/domain/email-content";
+import { Eye, Monitor, PencilRuler, Smartphone, TriangleAlert } from "lucide-react";
+import {
+  blockTemplateStrings,
+  blocksFor,
+  blocksToText,
+  createBlock,
+  findBlock,
+  insertBlock,
+  mapBlockText,
+  moveBlock,
+  removeBlock,
+  updateBlock,
+  type BlockLocation,
+  type EmailBlock,
+  type EmailBlockKind,
+} from "@/domain/email-content";
 import { renderEmailHtml } from "@/domain/email-render";
-import { eventContext } from "@/domain/event";
-import type { CustomerEvent } from "@/domain/event";
+import { eventContext, type CustomerEvent, type EventTemplate } from "@/domain/event";
+import { buildFieldCatalogue } from "@/domain/field-catalogue";
 import { interpolate, unresolvedPlaceholders } from "@/domain/expression";
 import type { EvaluationContext } from "@/domain/expression";
 import type { JourneyDefinition, SendEmailConfig } from "@/domain/journey";
-import { fullName, profileContext } from "@/domain/profile";
-import type { Profile } from "@/domain/profile";
-import { readEvents, readProfiles } from "@/services/storage";
+import { fullName, profileContext, type Profile } from "@/domain/profile";
+import { DOCUMENT_KEYS, readDoc, readEvents, readProfiles } from "@/services/storage";
 import { getEmailTheme } from "@/services/sending";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -31,19 +36,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { BlockEditor } from "./block-editor";
+import { BlockInspector } from "./block-inspector";
+import { EmailCanvas, type DragPayload } from "./email-canvas";
+import { ElementPalette } from "./element-palette";
+import { FieldCatalogueProvider, FieldInput } from "./field-picker";
 
 /**
- * The email designer: blocks on the left, the actual email on the right.
+ * The email designer: palette, canvas, inspector — and the real render behind
+ * a toggle.
  *
- * Separate from the properties panel rather than an expansion of it. An email
- * is 600px wide and the panel is less than half that, so the only way to see
- * what you are making was to send yourself a test and look at your inbox.
- *
- * The preview runs the same renderer and the same interpolation as a live
- * send, against a real client — so the merge fields you see resolved are the
- * ones that will resolve, and the ones flagged here are exactly the ones that
- * would stop the send.
+ * Two views on purpose. The canvas is React so elements can be dragged into
+ * place, which an iframe cannot support; the preview is the actual email HTML
+ * in an iframe, which is the only honest answer to "what will this look
+ * like?". Everything an editor like this gets wrong lives in the gap between
+ * those two, so the gap is a button rather than a hope.
  */
 
 const WIDTHS = { desktop: 680, mobile: 390 } as const;
@@ -66,12 +72,10 @@ export function EmailDesigner({
   const [subject, setSubject] = React.useState(config.subject);
   const [preheader, setPreheader] = React.useState(config.preheader ?? "");
   const [blocks, setBlocks] = React.useState<EmailBlock[]>(() => blocksFor(config));
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [device, setDevice] = React.useState<Device>("desktop");
-  /*
-   * Remembered per browser, because you preview against the same awkward
-   * client repeatedly — the one with the missing venue, or the longest name —
-   * and re-picking them every time you open the designer gets old fast.
-   */
+  const [mode, setMode] = React.useState<"design" | "preview">("design");
+
   const [profileId, setProfileId] = React.useState(() => {
     const remembered = readRememberedProfile();
     if (remembered && profiles.some((item) => item.id === remembered)) return remembered;
@@ -83,21 +87,22 @@ export function EmailDesigner({
     rememberProfile(id);
   };
 
-  const profile = profiles.find((item) => item.id === profileId) ?? profiles[0];
+  const profile = profiles.find((item) => item.id === profileId) ?? profiles[0] ?? null;
 
-  /*
-   * The most recent real event of the journey's own trigger, so `{{event.*}}`
-   * resolves the way it will in production. Falling back to a bare event
-   * rather than inventing payload fields keeps the warnings honest — an
-   * invented venue name would hide a merge field that is actually broken.
-   */
+  /* ---------------------------------------------------------------------- */
+  /* Context                                                                */
+  /* ---------------------------------------------------------------------- */
+
   const context = React.useMemo<EvaluationContext | null>(() => {
     if (!profile) return null;
 
-    const events = readEvents();
-    const match = events.find(
+    const match = readEvents().find(
       (event) => event.profileId === profile.id && event.name === journey.trigger.name,
     );
+    /*
+     * Falling back to an empty payload rather than inventing one: a made-up
+     * venue name would hide a merge field that is genuinely broken.
+     */
     const event: CustomerEvent =
       match ??
       ({
@@ -119,6 +124,18 @@ export function EmailDesigner({
       },
     };
   }, [journey, profile]);
+
+  const catalogue = React.useMemo(
+    () =>
+      buildFieldCatalogue({
+        journey,
+        profiles,
+        events: readEvents(),
+        eventTemplates: readDoc<EventTemplate[]>(DOCUMENT_KEYS.eventTemplates) ?? [],
+        focus: profile,
+      }),
+    [journey, profile, profiles],
+  );
 
   const resolved = React.useMemo(
     () => (context ? mapBlockText(blocks, (value) => interpolate(value, context)) : blocks),
@@ -143,11 +160,32 @@ export function EmailDesigner({
         blocks: resolved,
         theme,
         preheader: context ? interpolate(preheader, context) : preheader,
-        // A placeholder: the real one is per client and built at send time.
         unsubscribeUrl: "#preview",
       }),
     [context, preheader, resolved, theme],
   );
+
+  /* ---------------------------------------------------------------------- */
+  /* Editing                                                                */
+  /* ---------------------------------------------------------------------- */
+
+  const handleDrop = (payload: DragPayload, at: BlockLocation) => {
+    if (payload.type === "new") {
+      const block = createBlock(payload.kind, payload.widths);
+      setBlocks((current) => insertBlock(current, block, at));
+      setSelectedId(block.id);
+      return;
+    }
+    setBlocks((current) => moveBlock(current, payload.id, at));
+  };
+
+  const addAtEnd = (kind: EmailBlockKind, widths?: number[]) => {
+    const block = createBlock(kind, widths);
+    setBlocks((current) => [...current, block]);
+    setSelectedId(block.id);
+  };
+
+  const selected = selectedId ? findBlock(blocks, selectedId) : null;
 
   const save = () => {
     onSave({ subject, preheader, blocks, body: blocksToText(blocks) });
@@ -155,143 +193,198 @@ export function EmailDesigner({
   };
 
   return (
-    <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent
-        className="h-[92vh] max-w-[1180px] p-0"
-        onInteractOutside={(event) => event.preventDefault()}
-      >
-        <DialogTitle className="sr-only">Design email</DialogTitle>
-        <DialogDescription className="sr-only">
-          Edit the email body and see how it will look.
-        </DialogDescription>
+    <FieldCatalogueProvider groups={catalogue}>
+      <Dialog open onOpenChange={(next) => !next && onClose()}>
+        <DialogContent
+          className="h-[94vh] max-w-[1400px] p-0"
+          onInteractOutside={(event) => event.preventDefault()}
+        >
+          <DialogTitle className="sr-only">Design email</DialogTitle>
+          <DialogDescription className="sr-only">
+            Drag elements onto the email, and see how it will look.
+          </DialogDescription>
 
-        <div className="flex items-center gap-3 border-b border-border px-5 py-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-[14px] font-semibold tracking-tight">Design email</h2>
-            <p className="truncate text-[12px] text-muted-foreground">
-              {journey.name} · {config.template}
-            </p>
-          </div>
+          {/* Header */}
+          <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-2.5">
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-[14px] font-semibold tracking-tight">Design email</h2>
+              <p className="truncate text-[12px] text-muted-foreground">
+                {journey.name} · {config.template}
+              </p>
+            </div>
 
-          <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
-            {(["desktop", "mobile"] as Device[]).map((option) => {
-              const Icon = option === "desktop" ? Monitor : Smartphone;
-              return (
-                <button
-                  key={option}
-                  type="button"
-                  aria-label={option === "desktop" ? "Desktop width" : "Phone width"}
-                  onClick={() => setDevice(option)}
-                  className={cn(
-                    "rounded-md p-1.5 transition-colors",
-                    device === option
-                      ? "bg-accent-soft text-accent"
-                      : "text-muted-foreground hover:bg-surface-muted",
-                  )}
-                >
-                  <Icon className="size-3.5" />
-                </button>
-              );
-            })}
-          </div>
+            <Toggle
+              options={[
+                { value: "design", label: "Design", icon: PencilRuler },
+                { value: "preview", label: "Preview", icon: Eye },
+              ]}
+              value={mode}
+              onChange={setMode}
+            />
 
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={save}>
-            Done
-          </Button>
-        </div>
-
-        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[420px_minmax(0,1fr)]">
-          {/* Editing side */}
-          <div className="scroll-slim min-h-0 space-y-4 overflow-y-auto border-border p-5 lg:border-r">
-            <div className="space-y-1.5">
-              <Label htmlFor="designer-subject" className="text-[11px]">
-                Subject
-              </Label>
-              <Input
-                id="designer-subject"
-                value={subject}
-                onChange={(event) => setSubject(event.target.value)}
+            {mode === "preview" ? (
+              <Toggle
+                options={[
+                  { value: "desktop", label: "Desktop", icon: Monitor },
+                  { value: "mobile", label: "Phone", icon: Smartphone },
+                ]}
+                value={device}
+                onChange={setDevice}
+                iconOnly
               />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="designer-preheader" className="text-[11px]">
-                Inbox preview line
-              </Label>
-              <Input
-                id="designer-preheader"
-                value={preheader}
-                placeholder="Shown next to the subject in most inboxes"
-                onChange={(event) => setPreheader(event.target.value)}
-              />
-            </div>
-
-            <BlockEditor config={{ body: config.body, blocks }} onChange={setBlocks} />
-          </div>
-
-          {/* Preview side */}
-          <div className="flex min-h-0 flex-col bg-surface-muted/40">
-            <div className="flex items-center gap-2 border-b border-border px-4 py-2">
-              <span className="shrink-0 text-[11px] text-muted-foreground">Previewing for</span>
-              <Select value={profileId} onValueChange={chooseProfile}>
-                <SelectTrigger className="h-7 max-w-[240px] text-[12px]">
-                  <SelectValue placeholder="Choose a client" />
-                </SelectTrigger>
-                <SelectContent>
-                  {profiles.map((item: Profile) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {fullName(item)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {unresolved.length > 0 ? (
-              <div className="flex items-start gap-2 border-b border-warning/30 bg-warning-soft px-4 py-2.5 text-[12px] leading-relaxed text-warning">
-                <TriangleAlert className="mt-px size-3.5 shrink-0" />
-                <span>
-                  <strong className="font-semibold">
-                    {unresolved.length === 1
-                      ? "One field cannot be filled in"
-                      : `${unresolved.length} fields cannot be filled in`}
-                  </strong>{" "}
-                  for {profile ? fullName(profile) : "this client"}:{" "}
-                  {unresolved.map((field) => `{{${field}}}`).join(", ")}. A live send carrying
-                  these is blocked, because they would appear in the email exactly as written.
-                </span>
-              </div>
             ) : null}
 
-            <div className="scroll-slim min-h-0 flex-1 overflow-y-auto p-4">
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={save}>
+              Done
+            </Button>
+          </div>
+
+          {/* Subject row */}
+          <div className="grid shrink-0 gap-3 border-b border-border px-5 py-3 md:grid-cols-2">
+            <FieldInput label="Subject" value={subject} onChange={setSubject} />
+            <FieldInput
+              label="Inbox preview line"
+              value={preheader}
+              placeholder="Shown next to the subject in most inboxes"
+              onChange={setPreheader}
+            />
+          </div>
+
+          {/* Client + warnings */}
+          <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-2">
+            <span className="shrink-0 text-[11px] text-muted-foreground">Showing</span>
+            <Select value={profileId} onValueChange={chooseProfile}>
+              <SelectTrigger className="h-7 max-w-[220px] text-[12px]">
+                <SelectValue placeholder="Choose a client" />
+              </SelectTrigger>
+              <SelectContent>
+                {profiles.map((item: Profile) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {fullName(item)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {unresolved.length > 0 ? (
+              <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-warning">
+                <TriangleAlert className="size-3.5 shrink-0" />
+                <span className="truncate">
+                  {unresolved.map((field) => `{{${field}}}`).join(", ")} cannot be filled in for{" "}
+                  {profile ? fullName(profile) : "this client"} — a live send is blocked while
+                  that is true.
+                </span>
+              </span>
+            ) : null}
+          </div>
+
+          {/* Body */}
+          {mode === "design" ? (
+            <div className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)_280px]">
+              <div className="scroll-slim min-h-0 overflow-y-auto border-r border-border">
+                <ElementPalette onAdd={addAtEnd} />
+              </div>
+
+              <div className="scroll-slim min-h-0 overflow-y-auto bg-surface-muted/40 p-5">
+                <EmailCanvas
+                  /*
+                   * Resolved, not raw. There is a client picker directly
+                   * above this, so the canvas should read the way the email
+                   * reads for them. The template behind a block is what the
+                   * inspector shows once it is selected, which is where you
+                   * want the braces and nowhere else.
+                   *
+                   * Ids survive `mapBlockText`, so selection and drop targets
+                   * still address the real blocks.
+                   */
+                  blocks={resolved}
+                  theme={theme}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                  onDrop={handleDrop}
+                />
+              </div>
+
+              <div className="scroll-slim min-h-0 overflow-y-auto border-l border-border">
+                <BlockInspector
+                  block={selected}
+                  onChange={(patch) =>
+                    selectedId && setBlocks((current) => updateBlock(current, selectedId, patch))
+                  }
+                  onRemove={() => {
+                    if (!selectedId) return;
+                    setBlocks((current) => removeBlock(current, selectedId));
+                    setSelectedId(null);
+                  }}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="scroll-slim min-h-0 flex-1 overflow-y-auto bg-surface-muted/40 p-5">
               {/*
-                An iframe so the email's styles cannot touch the app's, and the
-                app's cannot flatter the email into looking better than it will
-                in an inbox.
+                The real email HTML, isolated so its styles cannot touch the
+                app's and the app's cannot flatter it.
               */}
               <iframe
                 title="Email preview"
                 srcDoc={html}
                 sandbox=""
                 style={{ width: WIDTHS[device] }}
-                className="mx-auto h-full min-h-[560px] rounded-lg border border-border bg-white transition-[width]"
+                className="mx-auto h-full min-h-[640px] rounded-lg border border-border bg-white transition-[width]"
               />
             </div>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+          )}
+        </DialogContent>
+      </Dialog>
+    </FieldCatalogueProvider>
+  );
+}
+
+function Toggle<T extends string>({
+  options,
+  value,
+  onChange,
+  iconOnly = false,
+}: {
+  options: { value: T; label: string; icon: React.ComponentType<{ className?: string }> }[];
+  value: T;
+  onChange: (value: T) => void;
+  iconOnly?: boolean;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-border p-0.5">
+      {options.map((option) => {
+        const Icon = option.icon;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-label={option.label}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] font-medium transition-colors",
+              value === option.value
+                ? "bg-accent-soft text-accent"
+                : "text-muted-foreground hover:bg-surface-muted",
+            )}
+          >
+            <Icon className="size-3.5" />
+            {iconOnly ? null : option.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
 /*
- * A per-viewer convenience, so browser storage is the right home for it —
- * nothing here needs to reach the server, other viewers or another device.
- * Both accessors are guarded: site data can be blocked or cleared, and a
- * throw here would take the whole designer down with it.
+ * A per-viewer convenience, so browser storage is its home — nothing here
+ * needs to reach the server, other viewers or another device. Guarded because
+ * blocked or cleared site data makes these throw, and the designer works fine
+ * without the memory.
  */
 const REMEMBERED_PROFILE_KEY = "cadence:designer:profile";
 
@@ -307,7 +400,6 @@ function rememberProfile(id: string): void {
   try {
     window.localStorage.setItem(REMEMBERED_PROFILE_KEY, id);
   } catch {
-    // Private windows and blocked site data both land here. The designer
-    // works fine without the memory.
+    // Private windows and blocked site data both land here.
   }
 }

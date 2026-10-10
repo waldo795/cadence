@@ -124,6 +124,28 @@ function renderBlock(block: EmailBlock, theme: EmailTheme): string {
       return `<div style="height:${SPACER_HEIGHT[block.size]}px;line-height:${
         SPACER_HEIGHT[block.size]
       }px;font-size:1px;">&nbsp;</div>`;
+
+    case "columns": {
+      const total = block.widths.reduce((sum, width) => sum + width, 0) || 1;
+      const cells = block.columns
+        .map((column, index) => {
+          const percent = ((block.widths[index] ?? 1) / total) * 100;
+          const inner = column.map((child) => renderBlock(child, theme)).join("");
+          /*
+           * The `col` class is what the stacking rule in the head targets.
+           * Everything else stays inline, because only this one behaviour
+           * cannot be expressed without a media query.
+           */
+          return `<td class="col" width="${percent.toFixed(
+            2,
+          )}%" valign="top" style="width:${percent.toFixed(
+            2,
+          )}%;padding:0 8px;">${inner || "&nbsp;"}</td>`;
+        })
+        .join("");
+
+      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 8px;"><tr>${cells}</tr></table>`;
+    }
   }
 }
 
@@ -208,6 +230,18 @@ export function renderEmailHtml(options: RenderOptions): string {
     // Tells supporting clients the design works in both schemes rather than
     // letting them invert the colours themselves, which they do badly.
     '<meta name="color-scheme" content="light only" />',
+    /*
+     * The one stylesheet in the document, and only because columns cannot
+     * stack on a phone without a media query — there is no inline equivalent.
+     *
+     * Outlook on Windows ignores it and leaves columns side by side, which is
+     * the right outcome on a desktop screen anyway. Everything else here stays
+     * inline, since Gmail strips <style> in some forwarding and clipping
+     * cases and the layout must survive that.
+     */
+    "<style>@media only screen and (max-width:480px){",
+    ".col{display:block !important;width:100% !important;padding:0 0 12px !important;}",
+    "}</style>",
     "</head>",
     `<body style="margin:0;padding:0;background:${theme.pageColor};">`,
     preheaderMarkup,

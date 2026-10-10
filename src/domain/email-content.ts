@@ -13,7 +13,14 @@
  * being left alone.
  */
 
-export type EmailBlockKind = "heading" | "text" | "image" | "button" | "divider" | "spacer";
+export type EmailBlockKind =
+  | "heading"
+  | "text"
+  | "image"
+  | "button"
+  | "divider"
+  | "spacer"
+  | "columns";
 
 export interface EmailBlockBase {
   id: string;
@@ -56,13 +63,32 @@ export interface SpacerBlock extends EmailBlockBase {
   size: "small" | "medium" | "large";
 }
 
+/**
+ * A row split into columns, each holding its own blocks.
+ *
+ * One level deep, deliberately. Columns inside columns is where email layout
+ * stops being predictable across clients, and it is not a layout anyone needs
+ * for a message to a bride.
+ */
+export interface ColumnsBlock extends EmailBlockBase {
+  kind: "columns";
+  /**
+   * Relative widths — `[1, 1]` for an even split, `[2, 1]` for a wide column
+   * beside a narrow one. Length decides the number of columns.
+   */
+  widths: number[];
+  /** One array of blocks per column. Always the same length as `widths`. */
+  columns: EmailBlock[][];
+}
+
 export type EmailBlock =
   | HeadingBlock
   | TextBlock
   | ImageBlock
   | ButtonBlock
   | DividerBlock
-  | SpacerBlock;
+  | SpacerBlock
+  | ColumnsBlock;
 
 export const BLOCK_LABEL: Record<EmailBlockKind, string> = {
   heading: "Heading",
@@ -71,7 +97,16 @@ export const BLOCK_LABEL: Record<EmailBlockKind, string> = {
   button: "Button",
   divider: "Divider",
   spacer: "Space",
+  columns: "Columns",
 };
+
+/** The layouts offered in the palette. */
+export const COLUMN_PRESETS: { id: string; label: string; widths: number[] }[] = [
+  { id: "1-1", label: "Two equal", widths: [1, 1] },
+  { id: "2-1", label: "Wide + narrow", widths: [2, 1] },
+  { id: "1-2", label: "Narrow + wide", widths: [1, 2] },
+  { id: "1-1-1", label: "Three equal", widths: [1, 1, 1] },
+];
 
 export const SPACER_HEIGHT: Record<SpacerBlock["size"], number> = {
   small: 12,
@@ -90,7 +125,7 @@ export function blockId(): string {
   return `blk_${Date.now().toString(36)}_${counter}`;
 }
 
-export function createBlock(kind: EmailBlockKind): EmailBlock {
+export function createBlock(kind: EmailBlockKind, widths: number[] = [1, 1]): EmailBlock {
   switch (kind) {
     case "heading":
       return { id: blockId(), kind, text: "A heading", level: 2 };
@@ -104,7 +139,147 @@ export function createBlock(kind: EmailBlockKind): EmailBlock {
       return { id: blockId(), kind };
     case "spacer":
       return { id: blockId(), kind, size: "medium" };
+    case "columns":
+      return { id: blockId(), kind, widths, columns: widths.map(() => []) };
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tree operations                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Where a block sits, or is being dropped.
+ *
+ * `containerId` is the columns block it belongs to, or null for the top
+ * level. Addressing by id rather than by an index path means a drop target
+ * stays valid while the list around it is being rearranged.
+ */
+export interface BlockLocation {
+  containerId: string | null;
+  columnIndex: number;
+  index: number;
+}
+
+/** Every block in order, each with where it lives. Columns are included. */
+export function flattenBlocks(
+  blocks: EmailBlock[],
+  containerId: string | null = null,
+  columnIndex = 0,
+): { block: EmailBlock; location: BlockLocation }[] {
+  const found: { block: EmailBlock; location: BlockLocation }[] = [];
+  blocks.forEach((block, index) => {
+    found.push({ block, location: { containerId, columnIndex, index } });
+    if (block.kind === "columns") {
+      block.columns.forEach((column, childColumn) => {
+        found.push(...flattenBlocks(column, block.id, childColumn));
+      });
+    }
+  });
+  return found;
+}
+
+export function findBlock(blocks: EmailBlock[], id: string): EmailBlock | null {
+  return flattenBlocks(blocks).find((entry) => entry.block.id === id)?.block ?? null;
+}
+
+export function locationOf(blocks: EmailBlock[], id: string): BlockLocation | null {
+  return flattenBlocks(blocks).find((entry) => entry.block.id === id)?.location ?? null;
+}
+
+/** Replaces one block anywhere in the tree, leaving the rest untouched. */
+export function updateBlock(
+  blocks: EmailBlock[],
+  id: string,
+  patch: Partial<EmailBlock>,
+): EmailBlock[] {
+  return blocks.map((block) => {
+    if (block.id === id) return { ...block, ...patch } as EmailBlock;
+    if (block.kind === "columns") {
+      return {
+        ...block,
+        columns: block.columns.map((column) => updateBlock(column, id, patch)),
+      };
+    }
+    return block;
+  });
+}
+
+export function removeBlock(blocks: EmailBlock[], id: string): EmailBlock[] {
+  return blocks
+    .filter((block) => block.id !== id)
+    .map((block) =>
+      block.kind === "columns"
+        ? { ...block, columns: block.columns.map((column) => removeBlock(column, id)) }
+        : block,
+    );
+}
+
+export function insertBlock(
+  blocks: EmailBlock[],
+  block: EmailBlock,
+  at: BlockLocation,
+): EmailBlock[] {
+  if (at.containerId === null) {
+    const next = [...blocks];
+    next.splice(clamp(at.index, next.length), 0, block);
+    return next;
+  }
+
+  return blocks.map((candidate) => {
+    if (candidate.id !== at.containerId || candidate.kind !== "columns") {
+      return candidate.kind === "columns"
+        ? {
+            ...candidate,
+            columns: candidate.columns.map((column) => insertBlock(column, block, at)),
+          }
+        : candidate;
+    }
+    return {
+      ...candidate,
+      columns: candidate.columns.map((column, columnIndex) => {
+        if (columnIndex !== at.columnIndex) return column;
+        const next = [...column];
+        next.splice(clamp(at.index, next.length), 0, block);
+        return next;
+      }),
+    };
+  });
+}
+
+/**
+ * Moves a block to a new place in one step.
+ *
+ * Removing then inserting as two calls would be wrong: taking the block out
+ * shifts every later index in its own list, so an index captured before the
+ * removal lands one position too far down.
+ */
+export function moveBlock(
+  blocks: EmailBlock[],
+  id: string,
+  to: BlockLocation,
+): EmailBlock[] {
+  const moving = findBlock(blocks, id);
+  if (!moving) return blocks;
+
+  // A columns block cannot be dropped inside itself, which would detach the
+  // whole subtree from the document.
+  if (moving.kind === "columns" && to.containerId === id) return blocks;
+
+  const from = locationOf(blocks, id);
+  const without = removeBlock(blocks, id);
+
+  const sameList =
+    from !== null &&
+    from.containerId === to.containerId &&
+    from.columnIndex === to.columnIndex;
+
+  const index = sameList && from.index < to.index ? to.index - 1 : to.index;
+  return insertBlock(without, moving, { ...to, index });
+}
+
+function clamp(index: number, length: number): number {
+  return Math.max(0, Math.min(index, length));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -170,6 +345,17 @@ export function blocksToText(blocks: EmailBlock[]): string {
         break;
       case "spacer":
         break;
+      case "columns":
+        /*
+         * Columns flatten top-to-bottom, left-to-right. Plain text has no
+         * side-by-side, and reading one column then the next is how a screen
+         * reader presents them anyway.
+         */
+        for (const column of block.columns) {
+          const text = blocksToText(column);
+          if (text) parts.push(text);
+        }
+        break;
     }
   }
 
@@ -183,6 +369,11 @@ export function blockTemplateStrings(blocks: EmailBlock[]): string[] {
     if (block.kind === "heading" || block.kind === "text") strings.push(block.text);
     if (block.kind === "button") strings.push(block.label, block.href);
     if (block.kind === "image") strings.push(block.url, block.alt, block.href ?? "");
+    // Without this, a merge field inside a column is never checked, and the
+    // first anyone hears of it is the braces arriving in someone's inbox.
+    if (block.kind === "columns") {
+      for (const column of block.columns) strings.push(...blockTemplateStrings(column));
+    }
   }
   return strings.filter(Boolean);
 }
@@ -205,6 +396,11 @@ export function mapBlockText(
           url: transform(block.url),
           alt: transform(block.alt),
           ...(block.href ? { href: transform(block.href) } : {}),
+        };
+      case "columns":
+        return {
+          ...block,
+          columns: block.columns.map((column) => mapBlockText(column, transform)),
         };
       default:
         return block;
