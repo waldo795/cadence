@@ -20,10 +20,35 @@ from the same business without anyone styling them five times.
 
 ---
 
+## The designer
+
+Select a Send Email node and click **Design email**. The designer opens
+full-screen: blocks down the left, the actual rendered email down the right.
+
+The preview runs the same renderer and the same merge-field resolution as a
+live send, against a client you pick from the dropdown. So "One week to go,
+{{profile.firstName}}" shows as "One week to go, Ava", with Ava's real venue
+and date — and if a field cannot be filled in for her, a warning names it
+while you type rather than after you send yourself a test.
+
+A desktop / phone toggle switches the preview width. Most brides read on a
+phone.
+
+> **Why it works this way**
+>
+> It is a separate window rather than part of the properties panel because an
+> email is 600px wide and the panel is under half that. Editing blocks in the
+> sidebar meant never seeing what you were making — the loop was save, switch
+> to test mode, send yourself one, check your inbox, go back.
+
+> **Watch out**
+>
+> The preview's unsubscribe link is a placeholder. The real one is built per
+> client at send time, so it cannot be clicked from here.
+
 ## Blocks
 
-A body is a list of blocks, edited in the journey's properties panel when a
-Send Email node is selected.
+A body is a list of blocks.
 
 | Block | Notes |
 | --- | --- |
@@ -66,8 +91,8 @@ text part of every send.
 ## The design
 
 **Settings → Email design.** Business name, logo, typeface, five colours, and
-the footer. The preview beside the fields is the real renderer with real
-sample content, so what you see is what sends.
+the footer. The preview beside the fields uses the real renderer with sample
+copy; the designer previews the same theme against a real client.
 
 > **Why it works this way**
 >

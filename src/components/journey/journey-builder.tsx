@@ -448,6 +448,7 @@ export function JourneyBuilder({ initialJourney }: { initialJourney: JourneyDefi
           />
         ) : (
           <PropertiesPanel
+            journey={journey}
             node={selectedNode}
             onChange={updateNode}
             onDuplicate={duplicateNode}

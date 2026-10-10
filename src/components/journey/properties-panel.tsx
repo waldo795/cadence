@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Copy, Info, Trash2, X } from "lucide-react";
+import { Copy, Info, Palette, Trash2, X } from "lucide-react";
 import { messageKeysOf } from "@/domain/exclusion";
 import {
   CONDITION_OPERATOR_LABELS,
@@ -13,7 +13,9 @@ import {
   type ConsentChannel,
   type ExclusionCheckConfig,
   type ExclusionScope,
+  type JourneyDefinition,
   type JourneyNode,
+  type SendEmailConfig,
   type NodeOfKind,
   type WaitUnit,
 } from "@/domain/journey";
@@ -30,11 +32,13 @@ import {
 } from "@/components/ui/select";
 import { Field, Mono, Separator } from "@/components/ui/misc";
 import { Tooltip } from "@/components/ui/tooltip";
-import { blocksToText } from "@/domain/email-content";
-import { BlockEditor } from "./block-editor";
+import { BLOCK_LABEL, blocksFor } from "@/domain/email-content";
+import { EmailDesigner } from "./email-designer";
 import { NodeIcon } from "./node-icon";
 
 interface PropertiesPanelProps {
+  /** The journey being edited — the designer previews against its trigger. */
+  journey: JourneyDefinition;
   node: JourneyNode | null;
   onChange: (nodeId: string, updater: (node: JourneyNode) => JourneyNode) => void;
   onDuplicate: (nodeId: string) => void;
@@ -56,6 +60,7 @@ const FIELD_SUGGESTIONS = [
 ];
 
 export function PropertiesPanel({
+  journey,
   node,
   onChange,
   onDuplicate,
@@ -117,7 +122,7 @@ export function PropertiesPanel({
 
         <Separator />
 
-        <NodeConfigFields node={node} onChange={onChange} />
+        <NodeConfigFields journey={journey} node={node} onChange={onChange} />
       </div>
 
       <div className="flex items-center gap-2 border-t border-border px-4 py-3">
@@ -139,12 +144,15 @@ export function PropertiesPanel({
 /* -------------------------------------------------------------------------- */
 
 function NodeConfigFields({
+  journey,
   node,
   onChange,
 }: {
+  journey: JourneyDefinition;
   node: JourneyNode;
   onChange: PropertiesPanelProps["onChange"];
 }) {
+  const [designing, setDesigning] = React.useState(false);
   /** Typed helper: patches the config of a node of a known kind. */
   function patch<K extends JourneyNode["kind"]>(
     kind: K,
@@ -492,24 +500,28 @@ function NodeConfigFields({
             value={node.config.subject}
             onChange={(subject) => patch("send_email", { subject })}
           />
-          <TextField
-            label="Inbox preview line"
-            value={node.config.preheader ?? ""}
-            onChange={(preheader) => patch("send_email", { preheader })}
-          />
-          <BlockEditor
+          {/*
+            The body is designed in its own window rather than here. An email
+            is 600px wide and this panel is under half that, so editing blocks
+            in it meant never seeing what you were making.
+          */}
+          <EmailBodySummary
             config={node.config}
-            onChange={(blocks) =>
-              /*
-               * `body` is written alongside the blocks, not left behind.
-               * It is the plain-text part of every send and what an older
-               * reader of this node still expects, so letting it drift from
-               * the blocks would mean two versions of the same email.
-               */
-              patch("send_email", { blocks, body: blocksToText(blocks) })
-            }
+            onOpen={() => setDesigning(true)}
           />
           <PersonalisationHint />
+
+          {designing ? (
+            <EmailDesigner
+              /* Remounts per node, so switching nodes cannot leave the
+                 designer showing the previous email. */
+              key={node.id}
+              journey={journey}
+              config={node.config}
+              onSave={(next) => patch("send_email", next)}
+              onClose={() => setDesigning(false)}
+            />
+          ) : null}
         </div>
       );
 
@@ -1026,5 +1038,55 @@ function PersonalisationHint() {
       Use <Mono>{"{{profile.firstName}}"}</Mono> or <Mono>{"{{event.fixture.homeTeam}}"}</Mono>.
       Rendered against the selected profile during simulation.
     </Hint>
+  );
+}
+
+/**
+ * What the email contains, and the way into the designer.
+ *
+ * A summary rather than an editor: the panel is too narrow to show a 600px
+ * email, so the useful thing it can do is say what is in there and get out of
+ * the way.
+ */
+function EmailBodySummary({
+  config,
+  onOpen,
+}: {
+  config: SendEmailConfig;
+  onOpen: () => void;
+}) {
+  const blocks = blocksFor(config);
+  const counts = blocks.reduce<Record<string, number>>((totals, block) => {
+    totals[block.kind] = (totals[block.kind] ?? 0) + 1;
+    return totals;
+  }, {});
+
+  const summary = Object.entries(counts)
+    .map(([kind, count]) => `${count} ${BLOCK_LABEL[kind as keyof typeof BLOCK_LABEL]}${count === 1 ? "" : "s"}`)
+    .join(" · ");
+
+  const firstText = blocks.find((block) => block.kind === "text" || block.kind === "heading");
+
+  return (
+    <div className="space-y-1.5">
+      <Label>Email body</Label>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="w-full rounded-lg border border-border bg-surface-muted/40 p-3 text-left transition-colors hover:border-border-strong hover:bg-surface-muted"
+      >
+        {firstText && "text" in firstText ? (
+          <p className="line-clamp-2 text-[12px] leading-relaxed text-muted-foreground">
+            {firstText.text || "Empty"}
+          </p>
+        ) : (
+          <p className="text-[12px] text-muted-foreground">Empty</p>
+        )}
+        <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-accent">
+          <Palette className="size-3" /> Design email
+        </p>
+      </button>
+      <p className="text-[11px] text-subtle-foreground">{summary}</p>
+    </div>
   );
 }
