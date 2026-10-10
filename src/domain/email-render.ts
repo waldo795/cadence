@@ -165,6 +165,25 @@ function renderHeader(theme: EmailTheme): string {
   return `<tr><td style="padding:28px 32px 4px;">${inner}</td></tr>`;
 }
 
+/**
+ * A full-width image above the content.
+ *
+ * Edge to edge, with no padding and no rounding on the sides, because a hero
+ * that stops short of the card's edges reads as a mistake rather than a
+ * design.
+ */
+function renderHero(theme: EmailTheme): string {
+  const url = theme.heroImageUrl?.trim();
+  if (!url) return "";
+
+  return [
+    '<tr><td style="padding:16px 0 0;">',
+    `<img src="${escapeHtml(url)}" alt="${escapeHtml(theme.heroImageAlt ?? "")}" width="${CARD_WIDTH}" `,
+    `style="display:block;width:100%;max-width:${CARD_WIDTH}px;height:auto;border:0;" />`,
+    "</td></tr>",
+  ].join("");
+}
+
 function renderFooter(theme: EmailTheme, unsubscribeUrl?: string): string {
   const style = `margin:0 0 4px;font-family:${theme.fontStack};font-size:12px;line-height:1.6;color:${theme.mutedColor};`;
 
@@ -249,6 +268,7 @@ export function renderEmailHtml(options: RenderOptions): string {
     '<tr><td align="center" style="padding:24px 12px;">',
     `<table role="presentation" width="${CARD_WIDTH}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${CARD_WIDTH}px;background:${theme.cardColor};border-radius:10px;">`,
     renderHeader(theme),
+    renderHero(theme),
     banner,
     `<tr><td style="padding:20px 32px 4px;">${body}</td></tr>`,
     renderFooter(theme, unsubscribeUrl),

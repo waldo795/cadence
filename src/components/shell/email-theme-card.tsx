@@ -5,13 +5,24 @@ import { RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import type { EmailBlock } from "@/domain/email-content";
 import { renderEmailHtml } from "@/domain/email-render";
-import { DEFAULT_EMAIL_THEME, type EmailTheme } from "@/domain/email-theme";
+import { DEFAULT_EMAIL_THEME, resolveTheme, type EmailTheme } from "@/domain/email-theme";
+import type { EvaluationContext } from "@/domain/expression";
+import { fullName, profileContext } from "@/domain/profile";
+import { readProfiles } from "@/services/storage";
 import { getEmailTheme, saveEmailTheme } from "@/services/sending";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/misc";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { DesignVariants } from "./design-variants";
 import { cn } from "@/lib/utils";
 
 /**
@@ -77,14 +88,37 @@ export function EmailThemeCard() {
     setDirty(true);
   };
 
+  /*
+   * Previewed against a real client, so a look keyed on an attribute can be
+   * seen working. Without one, variants would be editable but unverifiable
+   * until an email went out.
+   */
+  const profiles = React.useMemo(() => readProfiles(), []);
+  const [profileId, setProfileId] = React.useState(() => profiles[0]?.id ?? "");
+  const profile = profiles.find((item) => item.id === profileId) ?? profiles[0] ?? null;
+
+  const context = React.useMemo<EvaluationContext | null>(
+    () =>
+      profile
+        ? {
+            profile: profileContext(profile, new Date()),
+            event: { name: "preview", occurredAt: new Date().toISOString() },
+            journey: { name: "Preview" },
+          }
+        : null,
+    [profile],
+  );
+
+  const resolved = React.useMemo(() => resolveTheme(theme, context), [context, theme]);
+
   const html = React.useMemo(
     () =>
       renderEmailHtml({
         blocks: SAMPLE,
-        theme,
+        theme: resolved,
         unsubscribeUrl: "#",
       }),
-    [theme],
+    [resolved],
   );
 
   return (
@@ -213,10 +247,61 @@ export function EmailThemeCard() {
                 onChange={(event) => set("websiteUrl", event.target.value)}
               />
             </div>
+
+            <Separator />
+
+            <div className="space-y-1.5">
+              <Label htmlFor="hero-url" className="text-[11px]">
+                Hero image
+              </Label>
+              <Input
+                id="hero-url"
+                value={theme.heroImageUrl}
+                placeholder="https://… (leave empty for none)"
+                onChange={(event) => set("heroImageUrl", event.target.value)}
+              />
+              <Input
+                value={theme.heroImageAlt}
+                placeholder="Describe the image"
+                onChange={(event) => set("heroImageAlt", event.target.value)}
+              />
+              <p className="text-[11px] leading-relaxed text-subtle-foreground">
+                Sits full width above the content. Can hold a merge field, so{" "}
+                <code>{"{{profile.heroImage}}"}</code> works where the URL is on the client
+                record.
+              </p>
+            </div>
+
+            <Separator />
+
+            <DesignVariants
+              variants={theme.variants}
+              onChange={(variants) => set("variants", variants)}
+            />
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-[11px]">Preview</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-[11px]">Preview</Label>
+              {resolved.appliedVariant ? (
+                <span className="truncate rounded-full bg-accent-soft px-2 py-0.5 text-[10.5px] font-medium text-accent">
+                  {resolved.appliedVariant.label}
+                </span>
+              ) : null}
+            </div>
+
+            <Select value={profileId} onValueChange={setProfileId}>
+              <SelectTrigger className="h-7 text-[12px]">
+                <SelectValue placeholder="Choose a client" />
+              </SelectTrigger>
+              <SelectContent>
+                {profiles.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {fullName(item)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {/*
               An iframe, so the email's own styles cannot touch the app's and
               the app's cannot flatter the email into looking better than it

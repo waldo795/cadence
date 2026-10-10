@@ -52,7 +52,12 @@ function sampleOf(value: unknown): string | undefined {
  * use it.
  */
 export function buildFieldCatalogue(args: {
-  journey: JourneyDefinition;
+  /**
+   * Absent when editing a template, which belongs to no journey. The event
+   * group then offers what every declared trigger carries, since the template
+   * may end up in any of them.
+   */
+  journey?: JourneyDefinition | null;
   profiles: Profile[];
   events: CustomerEvent[];
   eventTemplates: EventTemplate[];
@@ -131,11 +136,23 @@ export function buildFieldCatalogue(args: {
    * being sent, and the real traffic is the thing that will be there at
    * send time.
    */
-  const triggerName = journey.trigger.name;
-  const template = eventTemplates.find((item) => item.name === triggerName);
-  const matching = events.filter((event) => event.name === triggerName).slice(0, 50);
+  const triggerName = journey?.trigger.name ?? null;
+  const template = triggerName
+    ? eventTemplates.find((item) => item.name === triggerName)
+    : undefined;
+
+  const matching = triggerName
+    ? events.filter((event) => event.name === triggerName).slice(0, 50)
+    : events.slice(0, 100);
 
   const payloadKeys = new Set<string>(Object.keys(template?.samplePayload ?? {}));
+  if (!triggerName) {
+    // No journey: offer the union of every declared trigger's payload, since
+    // the template could be used by any of them.
+    for (const item of eventTemplates) {
+      for (const key of Object.keys(item.samplePayload ?? {})) payloadKeys.add(key);
+    }
+  }
   for (const event of matching) {
     for (const key of Object.keys(event.payload ?? {})) payloadKeys.add(key);
   }
@@ -145,7 +162,7 @@ export function buildFieldCatalogue(args: {
     : matching[0];
 
   const eventFields: MergeField[] = [
-    { path: "event.name", label: "Event name", sample: triggerName },
+    { path: "event.name", label: "Event name", sample: triggerName ?? undefined },
     {
       path: "event.occurredAt",
       label: "When it happened",
@@ -192,8 +209,10 @@ export function buildFieldCatalogue(args: {
 
   groups.push({
     id: "event",
-    label: "This journey's trigger",
-    description: `Carried by ${triggerName}, which is what starts this journey.`,
+    label: triggerName ? "This journey's trigger" : "Trigger event",
+    description: triggerName
+      ? `Carried by , which is what starts this journey.`
+      : "Carried by whichever event starts the journey this is used in. Not every field is available to every journey.",
     fields: eventFields,
   });
 
@@ -202,8 +221,12 @@ export function buildFieldCatalogue(args: {
     label: "Journey",
     description: "About the journey sending the message.",
     fields: [
-      { path: "journey.name", label: "Journey name", sample: journey.name },
-      { path: "journey.version", label: "Version", sample: String(journey.version) },
+      { path: "journey.name", label: "Journey name", sample: journey?.name },
+      {
+        path: "journey.version",
+        label: "Version",
+        sample: journey ? String(journey.version) : undefined,
+      },
     ],
   });
 

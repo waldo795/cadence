@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Eye, Monitor, PencilRuler, Smartphone, TriangleAlert } from "lucide-react";
+import { Eye, Monitor, Palette, PencilRuler, Smartphone, TriangleAlert } from "lucide-react";
 import {
   blockTemplateStrings,
   blocksFor,
@@ -18,6 +18,7 @@ import {
   type EmailBlockKind,
 } from "@/domain/email-content";
 import { renderEmailHtml } from "@/domain/email-render";
+import { resolveTheme } from "@/domain/email-theme";
 import { eventContext, type CustomerEvent, type EventTemplate } from "@/domain/event";
 import { buildFieldCatalogue } from "@/domain/field-catalogue";
 import { interpolate, unresolvedPlaceholders } from "@/domain/expression";
@@ -40,6 +41,7 @@ import { BlockInspector } from "./block-inspector";
 import { EmailCanvas, type DragPayload } from "./email-canvas";
 import { ElementPalette } from "./element-palette";
 import { FieldCatalogueProvider, FieldInput } from "./field-picker";
+import { TemplateActions } from "./template-actions";
 
 /**
  * The email designer: palette, canvas, inspector — and the real render behind
@@ -56,13 +58,17 @@ const WIDTHS = { desktop: 680, mobile: 390 } as const;
 type Device = keyof typeof WIDTHS;
 
 export function EmailDesigner({
-  journey,
+  journey = null,
   config,
+  title,
   onSave,
   onClose,
 }: {
-  journey: JourneyDefinition;
+  /** Absent when editing a template, which belongs to no journey. */
+  journey?: JourneyDefinition | null;
   config: SendEmailConfig;
+  /** Overrides the journey subtitle — used by the template editor. */
+  title?: string;
   onSave: (next: Partial<SendEmailConfig>) => void;
   onClose: () => void;
 }) {
@@ -96,9 +102,11 @@ export function EmailDesigner({
   const context = React.useMemo<EvaluationContext | null>(() => {
     if (!profile) return null;
 
-    const match = readEvents().find(
-      (event) => event.profileId === profile.id && event.name === journey.trigger.name,
-    );
+    const match = journey
+      ? readEvents().find(
+          (event) => event.profileId === profile.id && event.name === journey.trigger.name,
+        )
+      : readEvents().find((event) => event.profileId === profile.id);
     /*
      * Falling back to an empty payload rather than inventing one: a made-up
      * venue name would hide a merge field that is genuinely broken.
@@ -107,7 +115,7 @@ export function EmailDesigner({
       match ??
       ({
         id: "preview",
-        name: journey.trigger.name,
+        name: journey?.trigger.name ?? "preview",
         profileId: profile.id,
         occurredAt: new Date().toISOString(),
         payload: {},
@@ -116,12 +124,9 @@ export function EmailDesigner({
     return {
       profile: profileContext(profile, new Date()),
       event: eventContext(event),
-      journey: {
-        id: journey.id,
-        key: journey.key,
-        name: journey.name,
-        version: journey.version,
-      },
+      journey: journey
+        ? { id: journey.id, key: journey.key, name: journey.name, version: journey.version }
+        : {},
     };
   }, [journey, profile]);
 
@@ -154,15 +159,22 @@ export function EmailDesigner({
     ];
   }, [blocks, context, subject]);
 
+  // The design this client actually gets: a variant may replace part of it,
+  // and merge fields inside it resolve against the same context as the copy.
+  const clientTheme = React.useMemo(
+    () => resolveTheme(theme, context),
+    [context, theme],
+  );
+
   const html = React.useMemo(
     () =>
       renderEmailHtml({
         blocks: resolved,
-        theme,
+        theme: clientTheme,
         preheader: context ? interpolate(preheader, context) : preheader,
         unsubscribeUrl: "#preview",
       }),
-    [context, preheader, resolved, theme],
+    [clientTheme, context, preheader, resolved],
   );
 
   /* ---------------------------------------------------------------------- */
@@ -209,7 +221,7 @@ export function EmailDesigner({
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-[14px] font-semibold tracking-tight">Design email</h2>
               <p className="truncate text-[12px] text-muted-foreground">
-                {journey.name} · {config.template}
+                {title ?? `${journey ? journey.name : "Template"} · ${config.template}`}
               </p>
             </div>
 
@@ -231,6 +243,26 @@ export function EmailDesigner({
                 value={device}
                 onChange={setDevice}
                 iconOnly
+              />
+            ) : null}
+
+            {/*
+              Offered only inside a journey. On the templates page the whole
+              screen is already a template, so "save as template" there would
+              just be a confusing second way to save.
+            */}
+            {journey ? (
+              <TemplateActions
+                journeyName={journey.name}
+                subject={subject}
+                preheader={preheader}
+                blocks={blocks}
+                onApply={(template) => {
+                  setSubject(template.subject || subject);
+                  setPreheader(template.preheader || preheader);
+                  setBlocks(template.blocks);
+                  setSelectedId(null);
+                }}
               />
             ) : null}
 
@@ -269,6 +301,13 @@ export function EmailDesigner({
               </SelectContent>
             </Select>
 
+            {clientTheme.appliedVariant ? (
+              <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent">
+                <Palette className="size-3" />
+                {clientTheme.appliedVariant.label}
+              </span>
+            ) : null}
+
             {unresolved.length > 0 ? (
               <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-warning">
                 <TriangleAlert className="size-3.5 shrink-0" />
@@ -301,7 +340,7 @@ export function EmailDesigner({
                    * still address the real blocks.
                    */
                   blocks={resolved}
-                  theme={theme}
+                  theme={clientTheme}
                   selectedId={selectedId}
                   onSelect={setSelectedId}
                   onDrop={handleDrop}

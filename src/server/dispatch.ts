@@ -1,5 +1,8 @@
 import { renderEmailHtml } from "@/domain/email-render";
-import { themeOrDefault, type EmailTheme } from "@/domain/email-theme";
+import { resolveTheme, themeOrDefault, type EmailTheme } from "@/domain/email-theme";
+import { eventContext } from "@/domain/event";
+import type { EvaluationContext } from "@/domain/expression";
+import { profileContext } from "@/domain/profile";
 import { unsubscribeUrl } from "@/lib/unsubscribe";
 import {
   DEFAULT_CONTROLS,
@@ -181,10 +184,23 @@ export async function dispatch(
      */
     const unsubscribe = await unsubscribeUrl(instance.profileId);
 
+    /*
+     * The design is resolved per client, not per send batch. A variant keyed
+     * on a profile attribute, or a hero image held on the client record, has
+     * to be decided here — the theme loaded once for the whole run is only
+     * the starting point.
+     */
+    const themeContext: EvaluationContext = {
+      profile: profileContext(profile, now),
+      event: eventContext(instance.context),
+      journey: { name: instance.journeyName, key: instance.journeyKey },
+    };
+    const resolvedTheme = resolveTheme(context.theme, themeContext);
+
     const html = message.blocks
       ? renderEmailHtml({
           blocks: message.blocks,
-          theme: context.theme,
+          theme: resolvedTheme,
           preheader: message.preheader,
           unsubscribeUrl: unsubscribe,
           testBanner:

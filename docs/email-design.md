@@ -151,3 +151,99 @@ evaluator already honours everywhere.
 > Links need `APP_URL` (or Railway's own domain) to be set. Without it,
 > emails go out with **no unsubscribe link at all**, which is unlawful for
 > marketing. Set it before going live.
+
+---
+
+## Columns
+
+Drag a layout from the palette for a row split into two, three, or an uneven
+pair. Each column holds its own blocks, and you drag content into them the
+same way.
+
+Columns sit side by side on a desktop and stack on a phone.
+
+> **Why it works this way**
+>
+> One level deep only. Columns inside columns is where email layout stops
+> being predictable across clients, and it is not a layout any message to a
+> bride needs.
+>
+> Stacking is the one thing in the whole email that needs a stylesheet — there
+> is no inline equivalent for a media query. Outlook on Windows ignores it and
+> leaves the columns side by side, which is the right outcome on a desktop
+> screen anyway. Everything else stays inline, because Gmail strips `<style>`
+> in some clipping and forwarding cases and the layout has to survive that.
+
+> **Watch out**
+>
+> Changing a row from three columns to two moves whatever was in the third
+> into the last remaining column rather than deleting it. Nothing is lost to a
+> mis-click, but things can end up somewhere you did not expect.
+
+---
+
+## Personalisation fields
+
+The `{{ }}` button beside any text field lists what can be merged in. The list
+is built from your actual data, not a fixed set:
+
+- **Client** — the fields every client record has.
+- **Client details** — whatever has been recorded beyond those: wedding date,
+  venue, package, trial date. Discovered across your client list, so it grows
+  as you record more.
+- **This journey's trigger** — the payload the event that starts this journey
+  actually carries, taken from the declared template *and* from real events of
+  that name, because a template can fall behind what is really being sent.
+- **Journey** — the name and version of the journey sending it.
+
+Each field shows a real value beside it, because the name does not tell you
+whether `readyByTime` holds "07:30" or "Undecided".
+
+> **Watch out**
+>
+> A warning triangle and a count like `6/9` means the field is missing for
+> some clients. Using it is not wrong — but those clients will have a live
+> send blocked until it is filled in or the field is removed.
+
+---
+
+## Templates
+
+**Templates** in the sidebar holds emails built once and reused. Build one
+there in the full designer, or save one from inside a journey with **Save as
+template**. Pick one up with the **Templates** button in the designer.
+
+> **Why it works this way**
+>
+> Both directions copy; nothing stays linked. A template that remained bound
+> to the journeys using it would mean editing the welcome email silently
+> rewrote the night-before one — a surprise you would discover by sending it.
+
+A template belongs to no journey, so the field picker there offers the union
+of every trigger's payload and marks how widely each field is carried. Not
+every field will be available to every journey that uses the template.
+
+---
+
+## Looks for particular clients
+
+**Settings → Email design → Looks for particular clients.** A look replaces
+part of the design when a condition matches — a different hero image and
+background for a winter wedding, say, or for a particular package.
+
+Looks are checked in order and **the first match wins**; the rest are ignored.
+Anything a look does not set falls through to the design above it.
+
+Values can also hold merge fields, so `{{profile.heroImage}}` works where the
+URL is on the client record. That resolves *after* a look is applied, so a
+merge field inside a look works too.
+
+The preview in Settings, and the one in the designer, both show the look that
+applies to the client you have selected, named in the corner. A look you
+cannot see applying to anyone is usually a condition that never matches.
+
+> **Watch out**
+>
+> A look can change the hero image and the colours, and nothing else. It
+> deliberately cannot touch the footer — one client seeing different business
+> details from another is not a design choice worth enabling.
